@@ -18,10 +18,12 @@ lab, and writes kinematics plots and a Lund event file ready for a detector simu
   each final-state particle: rows `(e', p', h+, h-)` x columns `(momentum, theta, phi)`.
 - `Kin_plots/dvep_kinematics_<V>.pdf` — Q^2, x_B, W, nu, -t, -t_min, t', epsilon, and the decay
   angles cos(theta), phi, Phi.
-- `Kin_plots/amplitudes_<V>.pdf` — |T| and |U| for all nine amplitudes, plus sigma_T, sigma_L and
-  R = sigma_L / sigma_T versus |t| at a reference Q^2.
-- `LUND_files/<V>_<E>gev.lund` — CLAS12/GEMC Lund file (one header line + the four final-state
-  particles e', p', h+, h- per event).
+- `Kin_plots/amplitudes_<V>.pdf` — the real and imaginary parts of all nine T and U amplitude
+  components versus |t| at a reference Q^2 (same layout as the extraction paper), plus sigma_T,
+  sigma_L and R = sigma_L / sigma_T.
+- `LUND_files/<V>_<E>gev_<i>.lund` — CLAS12/GEMC Lund files (header line + the four final-state
+  particles e', p', h+, h- per event). The events are split into files of at most 5000 events
+  each (GEMC's per-file limit), so `N` events give `ceil(N / 5000)` files numbered from 0.
 
 ## Requirements
 
@@ -45,7 +47,8 @@ Options are passed as environment variables (or edit the USER SECTION directly):
 |----------|---------|---------|
 | `MESON`  | `phi` (K+K-) or `rho0` (pi+pi-) | `phi` |
 | `E`      | Beam energy [GeV] | `10.6` |
-| `N`      | Number of events written | `20000` |
+| `N`      | Total number of events generated | `20000` |
+| `CHUNK`  | Events per Lund file (GEMC limit); gives `N/CHUNK` files | `5000` |
 | `POL`    | Beam helicity magnitude (0 = unpolarised) | `0.0` |
 
 ## Defining your amplitudes

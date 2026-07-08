@@ -27,7 +27,8 @@ PI = np.pi
 # ============================ USER SECTION ===================================
 MESON       = os.environ.get("MESON", "phi")          # "phi" or "rho0"
 BEAM_ENERGY = float(os.environ.get("E", "10.6"))       # GeV
-N_EVENTS    = int(os.environ.get("N", "20000"))        # events written to the Lund file
+N_EVENTS    = int(os.environ.get("N", "20000"))        # total events generated
+EVENTS_PER_FILE = int(os.environ.get("CHUNK", "5000")) # events per Lund file (GEMC limit); N/CHUNK files
 BEAM_POL    = float(os.environ.get("POL", "0.0"))      # beam helicity magnitude (0 = unpolarised)
 Q2_REF      = 2.6                                       # Q^2 [GeV^2] for the amplitude-vs-|t| plot
 SEED        = 1
@@ -131,21 +132,23 @@ def generate(E, n_target, MV, MH, rng):
 
 
 # ------------------------------------------------------------------- Lund -----
-def write_lund(ev, meta, path):
-    """CLAS12/GEMC Lund: header(10) + one line per final-state particle(14).
-    Particle cols: idx lifetime type pid parent daughter px py pz E mass vx vy vz."""
-    pid_e, pid_p = 11, 2212
-    parts = [(pid_e, ev["e"], ME), (pid_p, ev["p"], M),
+def write_lund(ev, meta, outdir, base):
+    """CLAS12/GEMC Lund, split into files of at most EVENTS_PER_FILE events (GEMC limit),
+    named <base>_0.lund, <base>_1.lund, ...  header(10) + one line per final-state particle(14):
+    idx lifetime type pid parent daughter px py pz E mass vx vy vz."""
+    parts = [(11, ev["e"], ME), (2212, ev["p"], M),
              (meta["pid_hp"], ev["hp"], meta["MH"]), (meta["pid_hm"], ev["hm"], meta["MH"])]
-    n = len(ev["Q2"])
-    with open(path, "w") as f:
-        for i in range(n):
-            f.write(f"4 1 1 0 {BEAM_POL:.3f} 11 {BEAM_ENERGY:.4f} 2212 0 1.0\n")
-            for j, (pid, p4, mass) in enumerate(parts, start=1):
-                px, py, pz, En = p4[i, 1], p4[i, 2], p4[i, 3], p4[i, 0]
-                f.write(f"{j} 0 1 {pid} 0 0 "
-                        f"{px:.6f} {py:.6f} {pz:.6f} {En:.6f} {mass:.6f} 0 0 0\n")
-    print(f"[lund] wrote {n} events -> {path}", flush=True)
+    n = len(ev["Q2"]); nfiles = int(np.ceil(n / EVENTS_PER_FILE))
+    for fi in range(nfiles):
+        lo, hi = fi*EVENTS_PER_FILE, min((fi+1)*EVENTS_PER_FILE, n)
+        with open(os.path.join(outdir, f"{base}_{fi}.lund"), "w") as f:
+            for i in range(lo, hi):
+                f.write(f"4 1 1 0 {BEAM_POL:.3f} 11 {BEAM_ENERGY:.4f} 2212 0 1.0\n")
+                for j, (pid, p4, mass) in enumerate(parts, start=1):
+                    f.write(f"{j} 0 1 {pid} 0 0 {p4[i,1]:.6f} {p4[i,2]:.6f} {p4[i,3]:.6f} "
+                            f"{p4[i,0]:.6f} {mass:.6f} 0 0 0\n")
+    print(f"[lund] wrote {n} events in {nfiles} file(s) of <= {EVENTS_PER_FILE} "
+          f"-> {os.path.join(outdir, base)}_[0..{nfiles-1}].lund", flush=True)
 
 
 # ------------------------------------------------------------------ plots -----
@@ -187,21 +190,36 @@ def plot_dvep(ev, path):
     print(f"[plot] {path}", flush=True)
 
 
+# the 16 real components in the paper's order: |T11|, Re/Im of the rest; U11 real; U00=0
+AMP_LABELS = [r"$|T_{11}|$",
+              r"$\mathrm{Re}\,T_{00}$", r"$\mathrm{Im}\,T_{00}$",
+              r"$\mathrm{Re}\,T_{01}$", r"$\mathrm{Im}\,T_{01}$",
+              r"$\mathrm{Re}\,T_{10}$", r"$\mathrm{Im}\,T_{10}$",
+              r"$\mathrm{Re}\,T_{1-1}$", r"$\mathrm{Im}\,T_{1-1}$",
+              r"$U_{11}$",
+              r"$\mathrm{Re}\,U_{01}$", r"$\mathrm{Im}\,U_{01}$",
+              r"$\mathrm{Re}\,U_{10}$", r"$\mathrm{Im}\,U_{10}$",
+              r"$\mathrm{Re}\,U_{1-1}$", r"$\mathrm{Im}\,U_{1-1}$"]
+
+
 def plot_amplitudes(meta, path):
-    t = np.linspace(0.05, 3.5, 60); Q2 = np.full_like(t, Q2_REF)
-    T11, T00, T01, T10, T1m1, U11, U01, U10, U1m1 = user_amplitudes(Q2, t)
-    A = amps_to_params(Q2, t); u = amp_to_u28_batch(A); ud = {nm: u[:, i] for i, nm in enumerate(UNAMES)}
+    """Paper-style: every real and imaginary amplitude component + sigma_T, sigma_L, R vs |t|."""
+    t = np.linspace(0.05, 3.5, 80); Q2 = np.full_like(t, Q2_REF)
+    A = amps_to_params(Q2, t)                       # (80,16) real components
+    u = amp_to_u28_batch(A); ud = {nm: u[:, i] for i, nm in enumerate(UNAMES)}
     sT = sigma_T(ud); sL = sigma_L(ud); R = sL/np.clip(sT, 1e-12, None)
-    amps = [("|T_{11}|", T11), ("|T_{00}|", T00), ("|T_{01}|", T01), ("|T_{10}|", T10),
-            ("|T_{1-1}|", T1m1), ("|U_{11}|", U11), ("|U_{01}|", U01), ("|U_{10}|", U10), ("|U_{1-1}|", U1m1)]
-    fig, axs = plt.subplots(3, 4, figsize=(17, 11))
-    for ax, (lab, a) in zip(axs.flat, amps):
-        ax.plot(t, np.abs(np.asarray(a) + 0j) + 0*t, color="#b03020", lw=2)
-        ax.set_xlabel(r"$|t|$ [GeV$^2$]"); ax.set_ylabel(f"${lab}$"); ax.grid(alpha=0.3)
-    for ax, (lab, y) in zip(axs.flat[9:], [(r"\sigma_T", sT), (r"\sigma_L", sL), ("R=\\sigma_L/\\sigma_T", R)]):
-        ax.plot(t, y, color="#1f4e79", lw=2); ax.set_xlabel(r"$|t|$ [GeV$^2$]"); ax.set_ylabel(f"${lab}$"); ax.grid(alpha=0.3)
-    fig.suptitle(f"Input amplitudes and cross sections at $Q^2={Q2_REF}$ GeV$^2$ ({MESON})", fontsize=14)
-    fig.tight_layout(rect=[0, 0, 1, 0.97]); fig.savefig(path, bbox_inches="tight"); plt.close(fig)
+    fig, axs = plt.subplots(4, 5, figsize=(19, 13))
+    for k in range(16):
+        ax = axs.flat[k]
+        ax.plot(t, A[:, k], color=("#1f4e79" if k < 9 else "#b03020"), lw=2)   # T blue, U red
+        ax.set_ylabel(AMP_LABELS[k]); ax.set_xlabel(r"$|t|$ [GeV$^2$]"); ax.grid(alpha=0.3)
+    for ax, lab, y in zip(axs.flat[16:19],
+                          [r"$\sigma_T$", r"$\sigma_L$", r"$R=\sigma_L/\sigma_T$"], [sT, sL, R]):
+        ax.plot(t, y, color="#1b7837", lw=2); ax.set_ylabel(lab); ax.set_xlabel(r"$|t|$ [GeV$^2$]"); ax.grid(alpha=0.3)
+    axs.flat[19].axis("off")
+    fig.suptitle(f"Input helicity amplitudes (real and imaginary parts) and cross sections "
+                 f"at $Q^2={Q2_REF}$ GeV$^2$ ({MESON})", fontsize=14)
+    fig.tight_layout(rect=[0, 0, 1, 0.98]); fig.savefig(path, bbox_inches="tight"); plt.close(fig)
     print(f"[plot] {path}", flush=True)
 
 
@@ -213,7 +231,7 @@ def main():
     os.makedirs(kd, exist_ok=True); os.makedirs(ld, exist_ok=True)
     print(f"generating {N_EVENTS} {MESON} events at E={BEAM_ENERGY} GeV ...", flush=True)
     ev = generate(BEAM_ENERGY, N_EVENTS, meta["MV"], meta["MH"], rng)
-    write_lund(ev, meta, os.path.join(ld, f"{MESON}_{BEAM_ENERGY:.1f}gev.lund"))
+    write_lund(ev, meta, ld, f"{MESON}_{BEAM_ENERGY:.1f}gev")
     plot_particle_kinematics(ev, meta, os.path.join(kd, f"particle_kinematics_{MESON}.pdf"))
     plot_dvep(ev, os.path.join(kd, f"dvep_kinematics_{MESON}.pdf"))
     plot_amplitudes(meta, os.path.join(kd, f"amplitudes_{MESON}.pdf"))
