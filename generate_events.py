@@ -109,6 +109,16 @@ def throw(E, n_pool, rng, MV, MH):
     Hm_rest = np.concatenate([np.full((N, 1), EK), -pK*kdir], 1)
     bphicm = dirphi*(pphi/Ephi)[:, None]
     Hp = _boost(_boost(Hp_rest, bphicm), beta); Hm = _boost(_boost(Hm_rest, bphicm), beta)
+    # Randomise the overall event azimuth about the beam: the unpolarised cross section is
+    # invariant under rotations about z, so the lab azimuth is arbitrary. This enforces exact
+    # rotational invariance (flat lab phi for every particle) and leaves all polar angles,
+    # invariant masses, and the rest-frame decay/production angles unchanged.
+    psi = rng.uniform(-PI, PI, N); cz, sz = np.cos(psi), np.sin(psi)
+    def _rotz(p4):
+        out = p4.copy()
+        out[:, 1] = p4[:, 1]*cz - p4[:, 2]*sz; out[:, 2] = p4[:, 1]*sz + p4[:, 2]*cz
+        return out
+    kp, prot, Hp, Hm = _rotz(kp), _rotz(prot), _rotz(Hp), _rotz(Hm)
     hsign = rng.choice([-1.0, 1.0], N) if BEAM_POL > 0 else np.zeros(N)  # per-event beam helicity: +1/-1 (0 if unpol.)
     heli = BEAM_POL * hsign                                              # W uses (polarization degree) x (sign)
     u = amp_to_u28_batch(amps_to_params(Q2, -t)); ud = {nm: u[:, i] for i, nm in enumerate(UNAMES)}
