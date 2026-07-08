@@ -51,6 +51,21 @@ Options are passed as environment variables (or edit the USER SECTION directly):
 | `CHUNK`  | Events per Lund file (GEMC limit); gives `N/CHUNK` files | `5000` |
 | `POL`    | Beam helicity magnitude (0 = unpolarised) | `0.0` |
 
+### Multi-energy (Rosenbluth) mode
+
+Pass `--multi-energy` (or `MULTI=1`) to generate `N` events at **each** of the three beams
+`6.535, 7.546, 10.6` GeV in one run:
+
+```bash
+python generate_events.py --multi-energy           # 3 x N events across all three beams
+N=50000 MULTI=1 python generate_events.py
+```
+
+The events from the three energies are pooled, shuffled, and written to
+`LUND_files/<V>_multiE_<i>.lund` (still 5000 events per file). Each event's Lund header carries
+its **own** beam energy, so the three energies share the same files. This provides the epsilon
+lever arm needed for a longitudinal/transverse (Rosenbluth) separation.
+
 ## Defining your amplitudes
 
 Everything physical lives in one function at the top of `generate_events.py`:

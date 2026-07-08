@@ -32,6 +32,8 @@ EVENTS_PER_FILE = int(os.environ.get("CHUNK", "5000")) # events per Lund file (G
 BEAM_POL    = float(os.environ.get("POL", "0.0"))      # beam helicity magnitude (0 = unpolarised)
 Q2_REF      = 2.6                                       # Q^2 [GeV^2] for the amplitude-vs-|t| plot
 SEED        = 1
+MULTI_ENERGIES = [6.535, 7.546, 10.6]                  # beams used in multi-energy mode
+MULTI       = ("--multi-energy" in sys.argv) or (os.environ.get("MULTI", "0") not in ("0", "", "false", "False"))
 
 MESONS = {  # vector-meson mass, decay-hadron mass, PDG ids, labels
     "phi":  dict(MV=1.019461, MH=0.493677, pid_hp=+321, pid_hm=-321, hp="K+",  hm="K-"),
@@ -112,13 +114,14 @@ def throw(E, n_pool, rng, MV, MH):
     Wp = np.nan_to_num(np.clip(W_ang(CosTh, Phi, phipr, eps, heli, ud), 0, None))
     wphys = np.nan_to_num(cross_section(Q2, xB, tprime)*Wp)
     return dict(Q2=Q2, xB=xB, nu=nu, W=Wm, tprime=tprime, absT=-t, tmin=-tmin, eps=eps,
-                CosTh=CosTh, phi=Phi, Phi=phipr, e=kp, p=prot, hp=Hp, hm=Hm, wphys=wphys)
+                CosTh=CosTh, phi=Phi, Phi=phipr, e=kp, p=prot, hp=Hp, hm=Hm, wphys=wphys,
+                Ebeam=np.full(len(Q2), E))
 
 
 def generate(E, n_target, MV, MH, rng):
     """Accept-reject on wphys -> n_target events."""
     keep = {k: [] for k in ("Q2", "xB", "nu", "W", "tprime", "absT", "tmin", "eps",
-                            "CosTh", "phi", "Phi", "e", "p", "hp", "hm")}
+                            "CosTh", "phi", "Phi", "e", "p", "hp", "hm", "Ebeam")}
     have = 0
     while have < n_target:
         d = throw(E, max(200000, 4*(n_target - have)), rng, MV, MH)
@@ -143,7 +146,7 @@ def write_lund(ev, meta, outdir, base):
         lo, hi = fi*EVENTS_PER_FILE, min((fi+1)*EVENTS_PER_FILE, n)
         with open(os.path.join(outdir, f"{base}_{fi}.lund"), "w") as f:
             for i in range(lo, hi):
-                f.write(f"4 1 1 0 {BEAM_POL:.3f} 11 {BEAM_ENERGY:.4f} 2212 0 1.0\n")
+                f.write(f"4 1 1 0 {BEAM_POL:.3f} 11 {ev['Ebeam'][i]:.4f} 2212 0 1.0\n")
                 for j, (pid, p4, mass) in enumerate(parts, start=1):
                     f.write(f"{j} 0 1 {pid} 0 0 {p4[i,1]:.6f} {p4[i,2]:.6f} {p4[i,3]:.6f} "
                             f"{p4[i,0]:.6f} {mass:.6f} 0 0 0\n")
@@ -229,9 +232,21 @@ def main():
     meta = MESONS[MESON]; rng = np.random.default_rng(SEED)
     kd = os.path.join(HERE, "Kin_plots"); ld = os.path.join(HERE, "LUND_files")
     os.makedirs(kd, exist_ok=True); os.makedirs(ld, exist_ok=True)
-    print(f"generating {N_EVENTS} {MESON} events at E={BEAM_ENERGY} GeV ...", flush=True)
-    ev = generate(BEAM_ENERGY, N_EVENTS, meta["MV"], meta["MH"], rng)
-    write_lund(ev, meta, ld, f"{MESON}_{BEAM_ENERGY:.1f}gev")
+    if MULTI:
+        print(f"[multi-energy] {N_EVENTS} {MESON} events at each of {MULTI_ENERGIES} GeV ...", flush=True)
+        evs = []
+        for E in MULTI_ENERGIES:
+            print(f"  E={E} GeV:", flush=True)
+            evs.append(generate(E, N_EVENTS, meta["MV"], meta["MH"], rng))
+        ev = {k: np.concatenate([e[k] for e in evs]) for k in evs[0]}
+        perm = rng.permutation(len(ev["Q2"]))            # mix energies across the Lund files
+        ev = {k: v[perm] for k, v in ev.items()}
+        base = f"{MESON}_multiE"
+    else:
+        print(f"generating {N_EVENTS} {MESON} events at E={BEAM_ENERGY} GeV ...", flush=True)
+        ev = generate(BEAM_ENERGY, N_EVENTS, meta["MV"], meta["MH"], rng)
+        base = f"{MESON}_{BEAM_ENERGY:.1f}gev"
+    write_lund(ev, meta, ld, base)
     plot_particle_kinematics(ev, meta, os.path.join(kd, f"particle_kinematics_{MESON}.pdf"))
     plot_dvep(ev, os.path.join(kd, f"dvep_kinematics_{MESON}.pdf"))
     plot_amplitudes(meta, os.path.join(kd, f"amplitudes_{MESON}.pdf"))
