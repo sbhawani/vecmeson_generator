@@ -109,19 +109,20 @@ def throw(E, n_pool, rng, MV, MH):
     Hm_rest = np.concatenate([np.full((N, 1), EK), -pK*kdir], 1)
     bphicm = dirphi*(pphi/Ephi)[:, None]
     Hp = _boost(_boost(Hp_rest, bphicm), beta); Hm = _boost(_boost(Hm_rest, bphicm), beta)
-    heli = BEAM_POL*rng.choice([-1.0, 1.0], N)
+    hsign = rng.choice([-1.0, 1.0], N) if BEAM_POL > 0 else np.zeros(N)  # per-event beam helicity: +1/-1 (0 if unpol.)
+    heli = BEAM_POL * hsign                                              # W uses (polarization degree) x (sign)
     u = amp_to_u28_batch(amps_to_params(Q2, -t)); ud = {nm: u[:, i] for i, nm in enumerate(UNAMES)}
     Wp = np.nan_to_num(np.clip(W_ang(CosTh, Phi, phipr, eps, heli, ud), 0, None))
     wphys = np.nan_to_num(cross_section(Q2, xB, tprime)*Wp)
     return dict(Q2=Q2, xB=xB, nu=nu, W=Wm, tprime=tprime, absT=-t, tmin=-tmin, eps=eps,
                 CosTh=CosTh, phi=Phi, Phi=phipr, e=kp, p=prot, hp=Hp, hm=Hm, wphys=wphys,
-                Ebeam=np.full(len(Q2), E))
+                Ebeam=np.full(len(Q2), E), hsign=hsign)
 
 
 def generate(E, n_target, MV, MH, rng):
     """Accept-reject on wphys -> n_target events."""
     keep = {k: [] for k in ("Q2", "xB", "nu", "W", "tprime", "absT", "tmin", "eps",
-                            "CosTh", "phi", "Phi", "e", "p", "hp", "hm", "Ebeam")}
+                            "CosTh", "phi", "Phi", "e", "p", "hp", "hm", "Ebeam", "hsign")}
     have = 0
     while have < n_target:
         d = throw(E, max(200000, 4*(n_target - have)), rng, MV, MH)
@@ -146,7 +147,7 @@ def write_lund(ev, meta, outdir, base):
         lo, hi = fi*EVENTS_PER_FILE, min((fi+1)*EVENTS_PER_FILE, n)
         with open(os.path.join(outdir, f"{base}_{fi}.lund"), "w") as f:
             for i in range(lo, hi):
-                f.write(f"4 1 1 0 {BEAM_POL:.3f} 11 {ev['Ebeam'][i]:.4f} 2212 0 1.0\n")
+                f.write(f"4 1 1 0 {int(ev['hsign'][i])} 11 {ev['Ebeam'][i]:.4f} 2212 0 1.0\n")
                 for j, (pid, p4, mass) in enumerate(parts, start=1):
                     f.write(f"{j} 0 1 {pid} 0 0 {p4[i,1]:.6f} {p4[i,2]:.6f} {p4[i,3]:.6f} "
                             f"{p4[i,0]:.6f} {mass:.6f} 0 0 0\n")

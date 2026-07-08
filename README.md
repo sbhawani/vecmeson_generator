@@ -49,7 +49,7 @@ Options are passed as environment variables (or edit the USER SECTION directly):
 | `E`      | Beam energy [GeV] | `10.6` |
 | `N`      | Total number of events generated | `20000` |
 | `CHUNK`  | Events per Lund file (GEMC limit); gives `N/CHUNK` files | `5000` |
-| `POL`    | Beam helicity magnitude (0 = unpolarised) | `0.0` |
+| `POL`    | Beam polarization degree (0 = unpolarised, 1 = polarised). Each event's helicity **sign** (+1/-1, or 0 if unpolarised) is written to its Lund header. | `0` |
 
 ### Multi-energy (Rosenbluth) mode
 
