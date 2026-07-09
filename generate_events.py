@@ -36,8 +36,8 @@ MULTI_ENERGIES = [6.535, 7.546, 10.6]                  # beams used in multi-ene
 MULTI       = ("--multi-energy" in sys.argv) or (os.environ.get("MULTI", "0") not in ("0", "", "false", "False"))
 
 MESONS = {  # vector-meson pole mass, width, decay-hadron mass, PDG ids, labels
-    "phi":  dict(MV=1.019461, width=0.004249, MH=0.493677, pid_hp=+321, pid_hm=-321, hp="K+",  hm="K-"),
-    "rho0": dict(MV=0.775260, width=0.149100, MH=0.139570, pid_hp=+211, pid_hm=-211, hp="pi+", hm="pi-"),
+    "phi":  dict(MV=1.019461, width=0.004249, MH=0.493677, pid_hp=+321, pid_hm=-321, hp="K+",  hm="K-",  htex=r"K^+K^-"),
+    "rho0": dict(MV=0.775260, width=0.149100, MH=0.139570, pid_hp=+211, pid_hm=-211, hp="pi+", hm="pi-", htex=r"\pi^+\pi^-"),
 }
 BW_MASS = os.environ.get("BW", "1") not in ("0", "", "false", "False")   # sample the Breit-Wigner line shape
 
@@ -219,7 +219,8 @@ def plot_dvep(ev, path):
     PAN = [("Q2", r"$Q^2$ [GeV$^2$]"), ("xB", r"$x_B$"), ("W", r"$W$ [GeV]"), ("nu", r"$\nu$ [GeV]"),
            ("absT", r"$-t$ [GeV$^2$]"), ("tmin", r"$-t_{\min}$ [GeV$^2$]"), ("tprime", r"$t'$ [GeV$^2$]"),
            ("eps", r"$\varepsilon$"), ("CosTh", r"$\cos\theta$"), ("phi", r"$\varphi$ (decay)"),
-           ("Phi", r"$\Phi$ (prod.)"), ("mV", r"$m_{h^+h^-}$ [GeV] (Breit-Wigner)")]
+           ("Phi", r"$\Phi$ (prod.)"),
+           ("mV", r"$m_{%s}$ [GeV] (Breit-Wigner)" % MESONS[MESON]["htex"])]
     fig, axs = plt.subplots(3, 4, figsize=(17, 11))
     for ax, (key, lab) in zip(axs.flat, PAN):
         ax.hist(ev[key], bins=60, color="#1b7837", alpha=0.85); ax.set_xlabel(lab); ax.set_ylabel("counts")
