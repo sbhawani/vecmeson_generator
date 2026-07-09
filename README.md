@@ -50,6 +50,12 @@ Options are passed as environment variables (or edit the USER SECTION directly):
 | `N`      | Total number of events generated | `20000` |
 | `CHUNK`  | Events per Lund file (GEMC limit); gives `N/CHUNK` files | `5000` |
 | `POL`    | Beam polarization degree (0 = unpolarised, 1 = polarised). Each event's helicity **sign** (+1/-1, or 0 if unpolarised) is written to its Lund header. | `0` |
+| `BW`     | Sample the meson mass from a relativistic Breit-Wigner line shape (1) or use the fixed pole mass (0). | `1` |
+
+The meson invariant mass is drawn from a relativistic Breit-Wigner with a mass-dependent P-wave
+width and a Blatt-Weisskopf L=1 barrier (pole mass and width set per meson in the `MESONS` table).
+This gives the broad $\rho^0\to\pi\pi$ bump and the narrow, K$^+$K$^-$-threshold-skewed $\phi\to KK$
+peak automatically; set `BW=0` for a fixed pole mass.
 
 ### Multi-energy (Rosenbluth) mode
 

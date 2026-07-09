@@ -35,10 +35,11 @@ SEED        = 1
 MULTI_ENERGIES = [6.535, 7.546, 10.6]                  # beams used in multi-energy mode
 MULTI       = ("--multi-energy" in sys.argv) or (os.environ.get("MULTI", "0") not in ("0", "", "false", "False"))
 
-MESONS = {  # vector-meson mass, decay-hadron mass, PDG ids, labels
-    "phi":  dict(MV=1.019461, MH=0.493677, pid_hp=+321, pid_hm=-321, hp="K+",  hm="K-"),
-    "rho0": dict(MV=0.775260, MH=0.139570, pid_hp=+211, pid_hm=-211, hp="pi+", hm="pi-"),
+MESONS = {  # vector-meson pole mass, width, decay-hadron mass, PDG ids, labels
+    "phi":  dict(MV=1.019461, width=0.004249, MH=0.493677, pid_hp=+321, pid_hm=-321, hp="K+",  hm="K-"),
+    "rho0": dict(MV=0.775260, width=0.149100, MH=0.139570, pid_hp=+211, pid_hm=-211, hp="pi+", hm="pi-"),
 }
+BW_MASS = os.environ.get("BW", "1") not in ("0", "", "false", "False")   # sample the Breit-Wigner line shape
 
 # --- Helicity amplitudes as functions of (Q^2, |t|).  EDIT THESE. ------------
 # Conventions (unpolarised nucleon-helicity non-flip):
@@ -71,16 +72,40 @@ def amps_to_params(Q2, t):
                      re(U10), im(U10), re(U1m1), im(U1m1)], axis=-1)
 
 
-def throw(E, n_pool, rng, MV, MH):
+def sample_meson_mass(rng, n, M0, Gamma, mh):
+    """Draw n meson invariant masses from a relativistic Breit-Wigner with a mass-dependent
+    P-wave width (V -> h+h-, L=1). Handles both the broad rho0 and the narrow, KK-threshold-
+    skewed phi automatically. Gamma<=0 returns the fixed pole mass."""
+    if Gamma <= 0 or not BW_MASS:
+        return np.full(n, float(M0))
+    m_lo = 2.0*mh + 1e-4; m_hi = M0 + 8.0*Gamma
+    p0 = np.sqrt(M0**2/4 - mh**2); R = 5.0                       # meson radius ~1 fm (GeV^-1)
+    def intensity(m):
+        p = np.sqrt(np.clip(m**2/4 - mh**2, 0.0, None))
+        bw = (1.0 + (p0*R)**2)/(1.0 + (p*R)**2)                  # Blatt-Weisskopf L=1 barrier factor
+        Gm = Gamma*(M0/m)*(p/p0)**3*bw                           # mass-dependent P-wave width
+        return m**2 * M0 * Gm / ((m**2 - M0**2)**2 + M0**2 * Gm**2)
+    Imax = 1.05*intensity(np.linspace(m_lo, m_hi, 4000)).max()
+    out = np.empty(n); filled = 0
+    while filled < n:
+        m = rng.uniform(m_lo, m_hi, 2*(n-filled)+16)
+        m = m[rng.uniform(0.0, Imax, len(m)) < intensity(m)]
+        take = min(len(m), n-filled); out[filled:filled+take] = m[:take]; filled += take
+    return out
+
+
+def throw(E, n_pool, rng, MV, GV, MH):
     """Full DVEP kinematics -> per-event production vars, decay angles, lab 4-vectors of
-    e', p', h+, h-, and the physics weight wphys = sigma(Q2,xB,t') * W(Omega; amplitudes)."""
+    e', p', h+, h-, and the physics weight wphys = sigma(Q2,xB,t') * W(Omega; amplitudes).
+    MV is the pole mass, GV the width (per-event mass drawn from the Breit-Wigner)."""
     k = np.array([E, 0, 0, np.sqrt(E**2 - ME**2)])
+    mv = sample_meson_mass(rng, n_pool, MV, GV, MH)              # per-event invariant mass
     Q2 = np.exp(rng.uniform(np.log(1.0), np.log(6.0), n_pool))
     xB = rng.uniform(0.08, 0.5, n_pool); tprime = rng.exponential(0.8, n_pool)
     nu = Q2/(2*M*xB); y = nu/E; W2 = M*M + 2*M*nu - Q2; Ep = E - nu
     cose = 1 - Q2/(2*E*np.clip(Ep, 1e-6, None))
-    ok = (y > 0) & (y < 0.99) & (W2 > (M+MV)**2) & (Ep > 0.3) & (np.abs(cose) < 1) & (tprime < 4)
-    Q2, xB, tprime, nu, y, W2, Ep, cose = (v[ok] for v in (Q2, xB, tprime, nu, y, W2, Ep, cose))
+    ok = (y > 0) & (y < 0.99) & (W2 > (M+mv)**2) & (Ep > 0.3) & (np.abs(cose) < 1) & (tprime < 4)
+    Q2, xB, tprime, nu, y, W2, Ep, cose, mv = (v[ok] for v in (Q2, xB, tprime, nu, y, W2, Ep, cose, mv))
     Wm = np.sqrt(W2); gam = 2*M*xB/np.sqrt(Q2)
     eps = (1 - y - 0.25*gam**2*y**2)/(1 - y + 0.5*y**2 + 0.25*gam**2*y**2)
     sine = np.sqrt(np.clip(1 - cose**2, 0, None)); phe = rng.uniform(-PI, PI, len(Q2))
@@ -89,12 +114,12 @@ def throw(E, n_pool, rng, MV, MH):
     ptar = np.tile([M, 0, 0, 0], (len(Q2), 1)); Wsys = q + ptar
     beta = Wsys[:, 1:]/Wsys[:, 0:1]; qcm = _boost(q, -beta)
     pg = np.linalg.norm(qcm[:, 1:], axis=1); Eg = qcm[:, 0]
-    Ephi = (W2 + MV**2 - M**2)/(2*Wm); pphi = np.sqrt(np.clip(Ephi**2 - MV**2, 0, None))
-    tmin = -Q2 + MV**2 - 2*(Eg*Ephi - pg*pphi); t = tmin - tprime
-    cosst = (t + Q2 - MV**2 + 2*Eg*Ephi)/(2*pg*pphi); good = np.abs(cosst) <= 1
-    (Q2, xB, nu, y, Wm, eps, kp, q, Wsys, beta, qcm, pg, Eg, Ephi, pphi, tprime, t, tmin, cosst) = (
+    Ephi = (W2 + mv**2 - M**2)/(2*Wm); pphi = np.sqrt(np.clip(Ephi**2 - mv**2, 0, None))
+    tmin = -Q2 + mv**2 - 2*(Eg*Ephi - pg*pphi); t = tmin - tprime
+    cosst = (t + Q2 - mv**2 + 2*Eg*Ephi)/(2*pg*pphi); good = np.abs(cosst) <= 1
+    (Q2, xB, nu, y, Wm, eps, kp, q, Wsys, beta, qcm, pg, Eg, Ephi, pphi, tprime, t, tmin, cosst, mv) = (
         v[good] for v in (Q2, xB, nu, y, Wm, eps, kp, q, Wsys, beta, qcm, pg, Eg, Ephi, pphi,
-                          tprime, t, tmin, cosst))
+                          tprime, t, tmin, cosst, mv))
     N = len(Q2); sinst = np.sqrt(1 - cosst**2); phipr = rng.uniform(-PI, PI, N)
     zc = qcm[:, 1:]/pg[:, None]; e1, e2 = _perp_axes(zc)
     dirphi = cosst[:, None]*zc + sinst[:, None]*(np.cos(phipr)[:, None]*e1 + np.sin(phipr)[:, None]*e2)
@@ -102,11 +127,11 @@ def throw(E, n_pool, rng, MV, MH):
     prot = Wsys - phi4
     zhel = dirphi; yhel = np.cross(zc, zhel)
     yhel /= np.clip(np.linalg.norm(yhel, axis=1, keepdims=True), 1e-9, None); xhel = np.cross(yhel, zhel)
-    pK = np.sqrt(MV**2/4 - MH**2); EK = np.sqrt(pK**2 + MH**2)
+    pK = np.sqrt(np.clip(mv**2/4 - MH**2, 0, None)); EK = np.sqrt(pK**2 + MH**2)   # per-event (mv)
     CosTh = rng.uniform(-1, 1, N); Phi = rng.uniform(-PI, PI, N); sinT = np.sqrt(1 - CosTh**2)
     kdir = CosTh[:, None]*zhel + sinT[:, None]*(np.cos(Phi)[:, None]*xhel + np.sin(Phi)[:, None]*yhel)
-    Hp_rest = np.concatenate([np.full((N, 1), EK),  pK*kdir], 1)
-    Hm_rest = np.concatenate([np.full((N, 1), EK), -pK*kdir], 1)
+    Hp_rest = np.concatenate([EK[:, None],  pK[:, None]*kdir], 1)
+    Hm_rest = np.concatenate([EK[:, None], -pK[:, None]*kdir], 1)
     bphicm = dirphi*(pphi/Ephi)[:, None]
     Hp = _boost(_boost(Hp_rest, bphicm), beta); Hm = _boost(_boost(Hm_rest, bphicm), beta)
     # Randomise the overall event azimuth about the beam: the unpolarised cross section is
@@ -126,16 +151,16 @@ def throw(E, n_pool, rng, MV, MH):
     wphys = np.nan_to_num(cross_section(Q2, xB, tprime)*Wp)
     return dict(Q2=Q2, xB=xB, nu=nu, W=Wm, tprime=tprime, absT=-t, tmin=-tmin, eps=eps,
                 CosTh=CosTh, phi=Phi, Phi=phipr, e=kp, p=prot, hp=Hp, hm=Hm, wphys=wphys,
-                Ebeam=np.full(len(Q2), E), hsign=hsign)
+                Ebeam=np.full(len(Q2), E), hsign=hsign, mV=mv)
 
 
-def generate(E, n_target, MV, MH, rng):
+def generate(E, n_target, MV, GV, MH, rng):
     """Accept-reject on wphys -> n_target events."""
     keep = {k: [] for k in ("Q2", "xB", "nu", "W", "tprime", "absT", "tmin", "eps",
-                            "CosTh", "phi", "Phi", "e", "p", "hp", "hm", "Ebeam", "hsign")}
+                            "CosTh", "phi", "Phi", "e", "p", "hp", "hm", "Ebeam", "hsign", "mV")}
     have = 0
     while have < n_target:
-        d = throw(E, max(200000, 4*(n_target - have)), rng, MV, MH)
+        d = throw(E, max(200000, 4*(n_target - have)), rng, MV, GV, MH)
         Wmax = np.percentile(d["wphys"], 99.9)
         acc = rng.uniform(0, Wmax, len(d["wphys"])) < d["wphys"]
         for k in keep: keep[k].append(d[k][acc])
@@ -194,11 +219,10 @@ def plot_dvep(ev, path):
     PAN = [("Q2", r"$Q^2$ [GeV$^2$]"), ("xB", r"$x_B$"), ("W", r"$W$ [GeV]"), ("nu", r"$\nu$ [GeV]"),
            ("absT", r"$-t$ [GeV$^2$]"), ("tmin", r"$-t_{\min}$ [GeV$^2$]"), ("tprime", r"$t'$ [GeV$^2$]"),
            ("eps", r"$\varepsilon$"), ("CosTh", r"$\cos\theta$"), ("phi", r"$\varphi$ (decay)"),
-           ("Phi", r"$\Phi$ (prod.)")]
+           ("Phi", r"$\Phi$ (prod.)"), ("mV", r"$m_{h^+h^-}$ [GeV] (Breit-Wigner)")]
     fig, axs = plt.subplots(3, 4, figsize=(17, 11))
     for ax, (key, lab) in zip(axs.flat, PAN):
         ax.hist(ev[key], bins=60, color="#1b7837", alpha=0.85); ax.set_xlabel(lab); ax.set_ylabel("counts")
-    axs.flat[-1].axis("off")
     fig.suptitle(f"DVEP kinematics ({MESON}, $E={BEAM_ENERGY}$ GeV)", fontsize=14)
     fig.tight_layout(rect=[0, 0, 1, 0.97]); fig.savefig(path, bbox_inches="tight"); plt.close(fig)
     print(f"[plot] {path}", flush=True)
@@ -248,14 +272,14 @@ def main():
         evs = []
         for E in MULTI_ENERGIES:
             print(f"  E={E} GeV:", flush=True)
-            evs.append(generate(E, N_EVENTS, meta["MV"], meta["MH"], rng))
+            evs.append(generate(E, N_EVENTS, meta["MV"], meta["width"], meta["MH"], rng))
         ev = {k: np.concatenate([e[k] for e in evs]) for k in evs[0]}
         perm = rng.permutation(len(ev["Q2"]))            # mix energies across the Lund files
         ev = {k: v[perm] for k, v in ev.items()}
         base = f"{MESON}_multiE"
     else:
         print(f"generating {N_EVENTS} {MESON} events at E={BEAM_ENERGY} GeV ...", flush=True)
-        ev = generate(BEAM_ENERGY, N_EVENTS, meta["MV"], meta["MH"], rng)
+        ev = generate(BEAM_ENERGY, N_EVENTS, meta["MV"], meta["width"], meta["MH"], rng)
         base = f"{MESON}_{BEAM_ENERGY:.1f}gev"
     write_lund(ev, meta, ld, base)
     plot_particle_kinematics(ev, meta, os.path.join(kd, f"particle_kinematics_{MESON}.pdf"))
