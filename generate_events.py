@@ -275,6 +275,53 @@ def plot_amplitudes(meta, path):
     print(f"[plot] {path}", flush=True)
 
 
+def plot_observables(ev, meta, path):
+    """Physics observables: the beam-spin asymmetry A_LU (helicity-separated) vs the production
+    plane Phi and the decay phi, the helicity-split yield N(Phi), and the decay-angle
+    distributions W(cos theta, phi, Phi) that carry the SDMEs."""
+    h = ev["hsign"]; pol = bool(np.any(h != 0))
+    fig, axs = plt.subplots(2, 3, figsize=(17, 9))
+
+    def alu(angle, ax, xlabel, nb=16):
+        e = np.linspace(-PI, PI, nb + 1); c = 0.5 * (e[:-1] + e[1:]); A = np.zeros(nb); Er = np.zeros(nb)
+        for i in range(nb):
+            m = (angle >= e[i]) & (angle < e[i + 1]); Np = int((h[m] > 0).sum()); Nm = int((h[m] < 0).sum())
+            Nt = max(Np + Nm, 1); A[i] = (Np - Nm) / Nt; Er[i] = np.sqrt(max(1 - A[i] ** 2, 0) / Nt)
+        ax.errorbar(c, A, yerr=Er, fmt="o", ms=4, color="#b03020")
+        ax.axhline(0, color="0.6", lw=0.8); ax.set_xlabel(xlabel); ax.set_ylabel(r"$A_{LU}$")
+        ax.set_ylim(-0.4, 0.4); ax.grid(alpha=0.3)
+        if pol:
+            a = 2.0 * np.mean(A * np.sin(c))
+            ax.plot(c, a * np.sin(c), "-", color="#1f4e79", lw=1.6, label=r"$%+.3f\,\sin$" % a)
+            ax.legend(fontsize=9, loc="upper right")
+        else:
+            ax.text(0.5, 0.88, "POL=0 (set POL=1 for the beam SSA)", transform=ax.transAxes,
+                    ha="center", fontsize=9, color="0.4")
+
+    alu(ev["Phi"], axs[0, 0], r"$\Phi$ (production plane) [rad]"); axs[0, 0].set_title(r"beam SSA  $A_{LU}(\Phi)$")
+    alu(ev["phi"], axs[0, 1], r"$\varphi$ (decay) [rad]"); axs[0, 1].set_title(r"$A_{LU}(\varphi_{\rm decay})$")
+    ax = axs[0, 2]; b = np.linspace(-PI, PI, 31)
+    if pol:
+        ax.hist(ev["Phi"][h > 0], bins=b, histtype="step", lw=1.6, color="#2166ac", label=r"$h=+1$")
+        ax.hist(ev["Phi"][h < 0], bins=b, histtype="step", lw=1.6, color="#b03020", label=r"$h=-1$")
+        ax.legend(fontsize=9)
+    else:
+        ax.hist(ev["Phi"], bins=b, color="0.7")
+    ax.set_title(r"yield $N(\Phi)$ by helicity"); ax.set_xlabel(r"$\Phi$ [rad]"); ax.set_ylabel("counts")
+
+    for ax, (key, lab, rg) in zip(axs[1], [("CosTh", r"$\cos\theta$ (helicity frame)", (-1, 1)),
+                                           ("phi", r"$\varphi$ (decay) [rad]", (-PI, PI)),
+                                           ("Phi", r"$\Phi$ (production) [rad]", (-PI, PI))]):
+        ax.hist(ev[key], bins=40, range=rg, color="#1b7837", alpha=0.85)
+        ax.set_xlabel(lab); ax.set_ylabel("counts"); ax.grid(alpha=0.3)
+    axs[1, 0].set_ylabel("decay-angle $W(\\Omega)$   counts")
+
+    fig.suptitle(f"Observables ({MESON}, $E={BEAM_ENERGY}$ GeV, POL={BEAM_POL}) -- beam SSA needs POL=1 "
+                 f"and helicity separation", fontsize=13)
+    fig.tight_layout(rect=[0, 0, 1, 0.96]); fig.savefig(path, bbox_inches="tight"); plt.close(fig)
+    print(f"[plot] {path}", flush=True)
+
+
 def main():
     if MESON not in MESONS:
         sys.exit(f"MESON must be one of {list(MESONS)}")
@@ -299,6 +346,7 @@ def main():
     plot_particle_kinematics(ev, meta, os.path.join(kd, f"particle_kinematics_{MESON}.pdf"))
     plot_dvep(ev, os.path.join(kd, f"dvep_kinematics_{MESON}.pdf"))
     plot_amplitudes(meta, os.path.join(kd, f"amplitudes_{MESON}.pdf"))
+    plot_observables(ev, meta, os.path.join(kd, f"observables_{MESON}.pdf"))
     print("done.", flush=True)
 
 
