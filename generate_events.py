@@ -34,6 +34,7 @@ Q2_REF      = 2.6                                       # Q^2 [GeV^2] for the am
 SEED        = 1
 MULTI_ENERGIES = [6.535, 7.546, 10.6]                  # beams used in multi-energy mode
 MULTI       = ("--multi-energy" in sys.argv) or (os.environ.get("MULTI", "0") not in ("0", "", "false", "False"))
+E_LABEL     = ("multi-energy " + "/".join(f"{e:g}" for e in MULTI_ENERGIES) + " GeV") if MULTI else f"$E={BEAM_ENERGY}$ GeV"
 
 MESONS = {  # vector-meson pole mass, width, decay-hadron mass, PDG ids, labels
     "phi":  dict(MV=1.019461, width=0.004249, MH=0.493677, pid_hp=+321, pid_hm=-321, hp="K+",  hm="K-",  htex=r"K^+K^-"),
@@ -223,7 +224,7 @@ def plot_particle_kinematics(ev, meta, path):
             if c == 0: ax.set_ylabel(lab + "   counts")
             if r == 3: ax.set_xlabel(cols[c])
             if r == 0: ax.set_title(cols[c])
-    fig.suptitle(f"Particle kinematics ({MESON}, $E={BEAM_ENERGY}$ GeV)", fontsize=14)
+    fig.suptitle(f"Particle kinematics ({MESON}, {E_LABEL})", fontsize=14)
     fig.tight_layout(rect=[0, 0, 1, 0.97]); fig.savefig(path, bbox_inches="tight"); plt.close(fig)
     print(f"[plot] {path}", flush=True)
 
@@ -237,7 +238,7 @@ def plot_dvep(ev, path):
     fig, axs = plt.subplots(3, 4, figsize=(17, 11))
     for ax, (key, lab) in zip(axs.flat, PAN):
         ax.hist(ev[key], bins=60, color="#1b7837", alpha=0.85); ax.set_xlabel(lab); ax.set_ylabel("counts")
-    fig.suptitle(f"DVEP kinematics ({MESON}, $E={BEAM_ENERGY}$ GeV)", fontsize=14)
+    fig.suptitle(f"DVEP kinematics ({MESON}, {E_LABEL})", fontsize=14)
     fig.tight_layout(rect=[0, 0, 1, 0.97]); fig.savefig(path, bbox_inches="tight"); plt.close(fig)
     print(f"[plot] {path}", flush=True)
 
@@ -316,7 +317,7 @@ def plot_observables(ev, meta, path):
         ax.set_xlabel(lab); ax.set_ylabel("counts"); ax.grid(alpha=0.3)
     axs[1, 0].set_ylabel("decay-angle $W(\\Omega)$   counts")
 
-    fig.suptitle(f"Observables ({MESON}, $E={BEAM_ENERGY}$ GeV, POL={BEAM_POL}) -- beam SSA needs POL=1 "
+    fig.suptitle(f"Observables ({MESON}, {E_LABEL}, POL={BEAM_POL}) -- beam SSA needs POL=1 "
                  f"and helicity separation", fontsize=13)
     fig.tight_layout(rect=[0, 0, 1, 0.96]); fig.savefig(path, bbox_inches="tight"); plt.close(fig)
     print(f"[plot] {path}", flush=True)
