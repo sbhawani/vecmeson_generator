@@ -329,20 +329,20 @@ def main():
     kd = os.path.join(HERE, "Kin_plots"); ld = os.path.join(HERE, "LUND_files")
     os.makedirs(kd, exist_ok=True); os.makedirs(ld, exist_ok=True)
     if MULTI:
-        print(f"[multi-energy] {N_EVENTS} {MESON} events at each of {MULTI_ENERGIES} GeV ...", flush=True)
+        print(f"[multi-energy] {N_EVENTS} {MESON} events at each of {MULTI_ENERGIES} GeV; "
+              f"Lund files per energy in their own subdir ...", flush=True)
         evs = []
         for E in MULTI_ENERGIES:
             print(f"  E={E} GeV:", flush=True)
-            evs.append(generate(E, N_EVENTS, meta["MV"], meta["width"], meta["MH"], rng))
-        ev = {k: np.concatenate([e[k] for e in evs]) for k in evs[0]}
-        perm = rng.permutation(len(ev["Q2"]))            # mix energies across the Lund files
-        ev = {k: v[perm] for k, v in ev.items()}
-        base = f"{MESON}_multiE"
+            evE = generate(E, N_EVENTS, meta["MV"], meta["width"], meta["MH"], rng)
+            sub = os.path.join(ld, f"{E:g}GeV"); os.makedirs(sub, exist_ok=True)   # e.g. LUND_files/6.535GeV/
+            write_lund(evE, meta, sub, f"{MESON}_{E:g}gev")
+            evs.append(evE)
+        ev = {k: np.concatenate([e[k] for e in evs]) for k in evs[0]}   # pooled -> combined plots only
     else:
         print(f"generating {N_EVENTS} {MESON} events at E={BEAM_ENERGY} GeV ...", flush=True)
         ev = generate(BEAM_ENERGY, N_EVENTS, meta["MV"], meta["width"], meta["MH"], rng)
-        base = f"{MESON}_{BEAM_ENERGY:.1f}gev"
-    write_lund(ev, meta, ld, base)
+        write_lund(ev, meta, ld, f"{MESON}_{BEAM_ENERGY:.1f}gev")
     plot_particle_kinematics(ev, meta, os.path.join(kd, f"particle_kinematics_{MESON}.pdf"))
     plot_dvep(ev, os.path.join(kd, f"dvep_kinematics_{MESON}.pdf"))
     plot_amplitudes(meta, os.path.join(kd, f"amplitudes_{MESON}.pdf"))

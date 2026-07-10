@@ -74,10 +74,10 @@ python generate_events.py --multi-energy           # 3 x N events across all thr
 N=50000 MULTI=1 python generate_events.py
 ```
 
-The events from the three energies are pooled, shuffled, and written to
-`LUND_files/<V>_multiE_<i>.lund` (still 5000 events per file). Each event's Lund header carries
-its **own** beam energy, so the three energies share the same files. This provides the epsilon
-lever arm needed for a longitudinal/transverse (Rosenbluth) separation.
+Each energy is written to its **own subdirectory**, `LUND_files/<E>GeV/<V>_<E>gev_<i>.lund`
+(still 5000 events per file), with the beam energy in each Lund header. This provides the epsilon
+lever arm needed for a longitudinal/transverse (Rosenbluth) separation. The kinematics/observable
+plots are made from the three energies combined.
 
 ## Defining your amplitudes
 
