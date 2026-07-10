@@ -138,7 +138,15 @@ def throw(E, n_pool, rng, MV, GV, MH):
         v[good] for v in (Q2, xB, nu, y, Wm, eps, kp, q, Wsys, beta, qcm, pg, Eg, Ephi, pphi,
                           tprime, t, tmin, cosst, mv))
     N = len(Q2); sinst = np.sqrt(1 - cosst**2); phipr = rng.uniform(-PI, PI, N)
-    zc = qcm[:, 1:]/pg[:, None]; e1, e2 = _perp_axes(zc)
+    zc = qcm[:, 1:]/pg[:, None]
+    # Production-azimuth reference = the LEPTON plane (scattered e- component perpendicular to the
+    # gamma* in the CM), so phipr is the physical (Trento) angle between the lepton and hadron
+    # planes.  Using an arbitrary lab axis here instead (e.g. _perp_axes) decouples the W(Phi)
+    # sigma_LT/sigma_TT (cos Phi, cos 2Phi) modulation from the lepton plane and washes it out.
+    kpcm = _boost(kp, -beta); lp = kpcm[:, 1:]
+    e1 = lp - np.sum(lp*zc, axis=1, keepdims=True)*zc
+    e1 /= np.clip(np.linalg.norm(e1, axis=1, keepdims=True), 1e-9, None)
+    e2 = np.cross(zc, e1)
     dirphi = cosst[:, None]*zc + sinst[:, None]*(np.cos(phipr)[:, None]*e1 + np.sin(phipr)[:, None]*e2)
     phicm = np.concatenate([Ephi[:, None], pphi[:, None]*dirphi], 1); phi4 = _boost(phicm, beta)
     prot = Wsys - phi4
