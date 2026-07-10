@@ -67,6 +67,16 @@ def user_amplitudes(Q2, t):
     U1m1 = 0.0 + 0j
     return T11, T00, T01, T10, T1m1, U11, U01, U10, U1m1
 # =============================================================================
+# Optional external amplitudes: AMP_FILE=/path/to/amps.py defining user_amplitudes(Q2,t)
+# overrides the built-in set above (e.g. for independent blind-test samples), leaving the
+# default untouched.
+_AMP_FILE = os.environ.get("AMP_FILE", "")
+if _AMP_FILE:
+    import importlib.util as _ilu
+    _spec = _ilu.spec_from_file_location("user_amps", _AMP_FILE)
+    _mod = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_mod)
+    user_amplitudes = _mod.user_amplitudes
+    print(f"[amplitudes] external AMP_FILE={_AMP_FILE}", flush=True)
 
 
 def amps_to_params(Q2, t):
