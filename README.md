@@ -51,6 +51,13 @@ Options are passed as environment variables (or edit the USER SECTION directly):
 | `CHUNK`  | Events per Lund file (GEMC limit); gives `N/CHUNK` files | `5000` |
 | `POL`    | Beam polarization degree (0 = unpolarised, 1 = polarised). Each event's helicity **sign** (+1/-1, or 0 if unpolarised) is written to its Lund header. | `0` |
 | `BW`     | Sample the meson mass from a relativistic Breit-Wigner line shape (1) or use the fixed pole mass (0). | `1` |
+| `WEIGHT` | Event-yield weighting: `amp` = Q^2/t dependence comes purely from your amplitudes; `flux` = also fold in the virtual-photon flux Gamma(Q^2,x,y); `toy` = legacy smooth shape. | `amp` |
+
+**Event weighting.** The kinematics (Q^2, x_B, t') are sampled **flat** and the yield is set by the
+weight, so the Q^2/t distribution reflects only the physics you choose. In the default `amp` mode the
+generated Q^2/t dependence is exactly `sigma_T + eps*sigma_L` built from your amplitudes (no extra
+falloff). Use `WEIGHT=flux` to include the physical virtual-photon flux (adds a ~1/Q^2 factor), or
+`WEIGHT=toy` for the old smooth paper-study shape.
 
 The meson invariant mass is drawn from a relativistic Breit-Wigner with a mass-dependent P-wave
 width and a Blatt-Weisskopf L=1 barrier (pole mass and width set per meson in the `MESONS` table).

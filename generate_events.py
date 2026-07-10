@@ -40,6 +40,12 @@ MESONS = {  # vector-meson pole mass, width, decay-hadron mass, PDG ids, labels
     "rho0": dict(MV=0.775260, width=0.149100, MH=0.139570, pid_hp=+211, pid_hm=-211, hp="pi+", hm="pi-", htex=r"\pi^+\pi^-"),
 }
 BW_MASS = os.environ.get("BW", "1") not in ("0", "", "false", "False")   # sample the Breit-Wigner line shape
+# How the Q^2/x/t event yield is weighted (kinematics are sampled FLAT, so this alone sets the shape):
+#   amp  : weight = |amplitude|^2 only -> the Q^2/t dependence comes PURELY from your amplitudes (default)
+#   flux : weight = virtual-photon flux x |amplitude|^2  (adds the physical Gamma(Q^2,x,y))
+#   toy  : weight = smooth toy cross section x |amplitude|^2  (legacy paper-study shape)
+WEIGHT = os.environ.get("WEIGHT", "amp")
+TMAX   = 4.0                                                              # flat t' sampling range [GeV^2]
 
 # --- Helicity amplitudes as functions of (Q^2, |t|).  EDIT THESE. ------------
 # Conventions (unpolarised nucleon-helicity non-flip):
@@ -100,8 +106,8 @@ def throw(E, n_pool, rng, MV, GV, MH):
     MV is the pole mass, GV the width (per-event mass drawn from the Breit-Wigner)."""
     k = np.array([E, 0, 0, np.sqrt(E**2 - ME**2)])
     mv = sample_meson_mass(rng, n_pool, MV, GV, MH)              # per-event invariant mass
-    Q2 = np.exp(rng.uniform(np.log(1.0), np.log(6.0), n_pool))
-    xB = rng.uniform(0.08, 0.5, n_pool); tprime = rng.exponential(0.8, n_pool)
+    Q2 = rng.uniform(1.0, 6.0, n_pool)                          # FLAT: shape set by the weight below
+    xB = rng.uniform(0.08, 0.5, n_pool); tprime = rng.uniform(0.0, TMAX, n_pool)   # FLAT in t'
     nu = Q2/(2*M*xB); y = nu/E; W2 = M*M + 2*M*nu - Q2; Ep = E - nu
     cose = 1 - Q2/(2*E*np.clip(Ep, 1e-6, None))
     ok = (y > 0) & (y < 0.99) & (W2 > (M+mv)**2) & (Ep > 0.3) & (np.abs(cose) < 1) & (tprime < 4)
@@ -147,8 +153,15 @@ def throw(E, n_pool, rng, MV, GV, MH):
     hsign = rng.choice([-1.0, 1.0], N) if BEAM_POL > 0 else np.zeros(N)  # per-event beam helicity: +1/-1 (0 if unpol.)
     heli = BEAM_POL * hsign                                              # W uses (polarization degree) x (sign)
     u = amp_to_u28_batch(amps_to_params(Q2, -t)); ud = {nm: u[:, i] for i, nm in enumerate(UNAMES)}
-    Wp = np.nan_to_num(np.clip(W_ang(CosTh, Phi, phipr, eps, heli, ud), 0, None))
-    wphys = np.nan_to_num(cross_section(Q2, xB, tprime)*Wp)
+    Wp = np.nan_to_num(np.clip(W_ang(CosTh, Phi, phipr, eps, heli, ud), 0, None))   # |amplitude|^2 x W_SW(Omega)
+    if WEIGHT == "toy":
+        wt = cross_section(Q2, xB, tprime)                      # legacy smooth toy shape
+    elif WEIGHT == "flux":
+        Kf = (Wm**2 - M**2)/(2*M)                               # Hand equivalent photon energy
+        wt = (1.0 - y)*Kf/(Q2*np.clip(1.0 - eps, 1e-3, None))   # transverse virtual-photon flux (relative)
+    else:                                                       # "amp": Q^2/t dependence from the amplitudes only
+        wt = 1.0
+    wphys = np.nan_to_num(wt*Wp)
     return dict(Q2=Q2, xB=xB, nu=nu, W=Wm, tprime=tprime, absT=-t, tmin=-tmin, eps=eps,
                 CosTh=CosTh, phi=Phi, Phi=phipr, e=kp, p=prot, hp=Hp, hm=Hm, wphys=wphys,
                 Ebeam=np.full(len(Q2), E), hsign=hsign, mV=mv)
