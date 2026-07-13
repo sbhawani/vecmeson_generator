@@ -47,10 +47,20 @@ BW_MASS = os.environ.get("BW", "1") not in ("0", "", "false", "False")   # sampl
 #   toy  : weight = smooth toy cross section x |amplitude|^2  (legacy paper-study shape)
 WEIGHT = os.environ.get("WEIGHT", "amp")
 WEIGHTED = os.environ.get("WEIGHTED", "0") not in ("0", "", "false", "False")  # physical-yield (weighted) events
-# LUND_TRUTH=1 appends the 16 TRUTH amplitude values (T,U re/im) to the Lund header. OFF by default so
-# BLIND samples stay blind -- the amplitudes are the hidden truth. Turn ON only for your own validation.
-LUND_TRUTH = os.environ.get("LUND_TRUTH", "0") not in ("0", "", "false", "False")
-TMAX   = 4.0                                                              # flat t' sampling range [GeV^2]
+# Header columns beyond the 10 standard Lund fields:
+#   LUND_KIN=1   -> +8 kinematics (Q2,|t|,xB,W,cos_theta,phi,Phi,eps), blind-safe (reconstructable).
+#   LUND_TRUTH=1 -> +16 TRUTH amplitude values (T,U re/im).  DEFAULT ON: the truth travels sealed in
+#                  the file for trivial unblinding; the extraction reads only the 4-vectors + weight
+#                  (never cols 11+), so it stays blind by construction.  Set LUND_TRUTH=0 for a hard
+#                  blind (amplitudes not written at all).
+LUND_TRUTH = os.environ.get("LUND_TRUTH", "1") not in ("0", "", "false", "False")
+LUND_KIN = LUND_TRUTH or os.environ.get("LUND_KIN", "0") not in ("0", "", "false", "False")
+# Kinematic sampling windows (FLAT sampling; the physics shape comes from the weight). Defaults match
+# the extraction's trained forward model -- for the blind test keep the defaults; override via env for
+# other studies:  Q2MIN Q2MAX [GeV^2],  XBMIN XBMAX,  TMAX = flat t' upper bound [GeV^2].
+Q2MIN = float(os.environ.get("Q2MIN", "1.0")); Q2MAX = float(os.environ.get("Q2MAX", "6.0"))
+XBMIN = float(os.environ.get("XBMIN", "0.08")); XBMAX = float(os.environ.get("XBMAX", "0.5"))
+TMAX = float(os.environ.get("TMAX", "4.0"))
 
 # --- Helicity amplitudes as functions of (Q^2, |t|).  EDIT THESE. ------------
 # Conventions (unpolarised nucleon-helicity non-flip):
@@ -121,8 +131,8 @@ def throw(E, n_pool, rng, MV, GV, MH):
     MV is the pole mass, GV the width (per-event mass drawn from the Breit-Wigner)."""
     k = np.array([E, 0, 0, np.sqrt(E**2 - ME**2)])
     mv = sample_meson_mass(rng, n_pool, MV, GV, MH)              # per-event invariant mass
-    Q2 = rng.uniform(1.0, 6.0, n_pool)                          # FLAT: shape set by the weight below
-    xB = rng.uniform(0.08, 0.5, n_pool); tprime = rng.uniform(0.0, TMAX, n_pool)   # FLAT in t'
+    Q2 = rng.uniform(Q2MIN, Q2MAX, n_pool)                      # FLAT: shape set by the weight below
+    xB = rng.uniform(XBMIN, XBMAX, n_pool); tprime = rng.uniform(0.0, TMAX, n_pool)   # FLAT in t'
     nu = Q2/(2*M*xB); y = nu/E; W2 = M*M + 2*M*nu - Q2; Ep = E - nu
     cose = 1 - Q2/(2*E*np.clip(Ep, 1e-6, None))
     ok = (y > 0) & (y < 0.99) & (W2 > (M+mv)**2) & (Ep > 0.3) & (np.abs(cose) < 1) & (tprime < 4)
@@ -190,11 +200,11 @@ def throw(E, n_pool, rng, MV, GV, MH):
                 Ebeam=np.full(len(Q2), E), hsign=hsign, mV=mv)
 
 
-def generate(E, n_target, MV, GV, MH, rng):
+def generate(E, n_target, MV, GV, MH, rng, wmax=None):
     """WEIGHTED=1: keep ALL flat-in-kinematics events, each carrying its physics weight wphys
-    (written to the Lund weight field) -> physical yields with NO accept-reject clipping, so the
-    downstream rate feature is the exact per-bin intensity (removes the fixed-N/kappa_E hack).
-    Otherwise: accept-reject on wphys -> n_target unweighted events (legacy)."""
+    (written to the Lund weight field) -> physical yields with NO accept-reject clipping.
+    Otherwise: accept-reject on wphys -> n_target unweighted events.  wmax overrides the accept-reject
+    threshold with a COMMON value (so multi-energy relative yields are preserved -- see generate_multi)."""
     keep = {k: [] for k in ("Q2", "xB", "nu", "W", "tprime", "absT", "tmin", "eps",
                             "CosTh", "phi", "Phi", "e", "p", "hp", "hm", "Ebeam", "hsign", "mV", "wphys")}
     have = 0
@@ -203,13 +213,35 @@ def generate(E, n_target, MV, GV, MH, rng):
         if WEIGHTED:
             acc = np.ones(len(d["wphys"]), bool)                # keep all (flat, weighted)
         else:
-            Wmax = np.percentile(d["wphys"], 99.9)
-            acc = rng.uniform(0, Wmax, len(d["wphys"])) < d["wphys"]
+            Wm = wmax if wmax is not None else np.percentile(d["wphys"], 99.9)
+            acc = rng.uniform(0, Wm, len(d["wphys"])) < d["wphys"]
         for k in keep: keep[k].append(d[k][acc])
         have += int(acc.sum())
         print(f"  ... {have}/{n_target}", flush=True)
     ev = {k: np.concatenate(v)[:n_target] for k, v in keep.items()}
     return ev
+
+
+def generate_multi(energies, meta, rng, lumis, n_events):
+    """REALISTIC unweighted multi-energy generation, matching how real data looks: a COMMON
+    accept-reject threshold across all beams + accepted counts N(E) ~ L(E)*sigma(E), so the
+    RELATIVE multi-energy yields (the L/T Rosenbluth lever) are physical.  n_events targets the
+    highest-yield beam.  Returns (list of per-energy ev dicts, list of accepted counts)."""
+    MV, GV, MH = meta["MV"], meta["width"], meta["MH"]
+    if WEIGHT != "flux":
+        print(f"[warn] WEIGHT={WEIGHT}: for realistic per-energy YIELDS use WEIGHT=flux "
+              f"(virtual-photon flux x |amp|^2); the L/T lever needs the flux.", flush=True)
+    cals = [throw(E, 400000, rng, MV, GV, MH) for E in energies]           # calibration pass
+    wmax = 1.05 * max(np.percentile(c["wphys"], 99.9) for c in cals)       # COMMON threshold
+    fracs = [float(np.mean(np.clip(c["wphys"] / wmax, 0, 1))) for c in cals]   # accept frac ~ sigma(E)
+    yields = [L * f for L, f in zip(lumis, fracs)]; ymax = max(yields)
+    evs, counts = [], []
+    for E, y in zip(energies, yields):
+        n_acc = max(1, int(round(n_events * y / ymax)))                   # N(E) ~ L(E)*sigma(E)
+        print(f"  E={E} GeV: target {n_acc} accepted (relative yield {y/ymax:.3f}) ...", flush=True)
+        ev = generate(E, n_acc, MV, GV, MH, rng, wmax=wmax)
+        evs.append(ev); counts.append(len(ev["Q2"]))
+    return evs, counts
 
 
 # ------------------------------------------------------------------- Lund -----
@@ -227,39 +259,44 @@ def write_lund(ev, meta, outdir, base):
     HEADER = the 10 standard Lund fields
       [nparticles=4, A=1, Z=1, target_pol=0, beam_helicity, beam_type=11, E_beam, target_pid=2212,
        process_id=0, weight=wphys]
-    followed by EXTRA per-event fields (cols 11..18): Q2, |t|, xB, W, cos(theta)_decay,
-      phi_decay, Phi_Trento, eps  (all reconstructable from the 4-vectors -- blind-safe).
-    If env LUND_TRUTH=1, cols 19..34 ALSO append the 16 TRUTH amplitude components [T11, Re/Im T00,
-      Re/Im T01, Re/Im T10, Re/Im T1m1, U11, Re/Im U01, Re/Im U10, Re/Im U1m1] at this event's
-      (Q2,|t|).  Leave LUND_TRUTH OFF for BLIND samples so the hidden amplitudes are not revealed.
+    DEFAULT header = the CLEAN 10 standard Lund fields (blind, standard).  Optional appended columns:
+      LUND_KIN=1   -> cols 11..18: Q2, |t|, xB, W, cos(theta)_decay, phi_decay, Phi_Trento, eps
+                      (reconstructable from the 4-vectors -- blind-safe).
+      LUND_TRUTH=1 -> ALSO cols 19..34: the 16 TRUTH amplitude components at (Q2,|t|)
+                      (reveals the hidden amplitudes -- YOUR validation only).
     A companion <base>_columns.txt documents the column order."""
     parts = [(11, ev["e"], ME), (2212, ev["p"], M),
              (meta["pid_hp"], ev["hp"], meta["MH"]), (meta["pid_hm"], ev["hm"], meta["MH"])]
     n = len(ev["Q2"]); nfiles = int(np.ceil(n / EVENTS_PER_FILE))
     Apar = amps_to_params(ev["Q2"], ev["absT"]) if LUND_TRUTH else None    # truth amplitudes only if requested
-    extra_cols = LUND_KIN_COLS + (LUND_AMP_COLS if LUND_TRUTH else [])
+    extra_cols = (LUND_KIN_COLS if LUND_KIN else []) + (LUND_AMP_COLS if LUND_TRUTH else [])
     with open(os.path.join(outdir, f"{base}_columns.txt"), "w") as fc:
         std = ["nparticles", "A", "Z", "target_pol", "beam_helicity", "beam_type", "E_beam",
                "target_pid", "process_id", "weight_wphys"]
-        fc.write(f"Lund header columns (1-indexed){'  [LUND_TRUTH=1: amplitudes included]' if LUND_TRUTH else '  [blind: no amplitudes]'}:\n")
+        tag = "  [+truth amplitudes]" if LUND_TRUTH else ("  [+kinematics, blind]" if LUND_KIN else "  [clean standard Lund]")
+        fc.write(f"Lund header columns (1-indexed){tag}:\n")
         for c, name in enumerate(std + extra_cols, 1):
             fc.write(f"  {c:2d}  {name}\n")
     for fi in range(nfiles):
         lo, hi = fi*EVENTS_PER_FILE, min((fi+1)*EVENTS_PER_FILE, n)
         with open(os.path.join(outdir, f"{base}_{fi}.lund"), "w") as f:
-            wt = ev["wphys"] if "wphys" in ev else np.ones(n)     # per-event physics weight (Lund field 10)
+            # Lund field 10: WEIGHTED mode -> physics weight wphys; unweighted (accept-reject) -> 1.0
+            wt = ev["wphys"] if (WEIGHTED and "wphys" in ev) else np.ones(n)
             for i in range(lo, hi):
-                extra = (f"{ev['Q2'][i]:.5g} {ev['absT'][i]:.5g} {ev['xB'][i]:.5g} {ev['W'][i]:.5g} "
-                         f"{ev['CosTh'][i]:.5g} {ev['phi'][i]:.5g} {ev['Phi'][i]:.5g} {ev['eps'][i]:.5g}")
+                extra = ""
+                if LUND_KIN:
+                    extra = (f" {ev['Q2'][i]:.5g} {ev['absT'][i]:.5g} {ev['xB'][i]:.5g} {ev['W'][i]:.5g} "
+                             f"{ev['CosTh'][i]:.5g} {ev['phi'][i]:.5g} {ev['Phi'][i]:.5g} {ev['eps'][i]:.5g}")
                 if LUND_TRUTH:
                     extra += " " + " ".join(f"{a:.5g}" for a in Apar[i])
-                f.write(f"4 1 1 0 {int(ev['hsign'][i])} 11 {ev['Ebeam'][i]:.4f} 2212 0 {wt[i]:.6g} {extra}\n")
+                f.write(f"4 1 1 0 {int(ev['hsign'][i])} 11 {ev['Ebeam'][i]:.4f} 2212 0 {wt[i]:.6g}{extra}\n")
                 for j, (pid, p4, mass) in enumerate(parts, start=1):
                     f.write(f"{j} 0 1 {pid} 0 0 {p4[i,1]:.6f} {p4[i,2]:.6f} {p4[i,3]:.6f} "
                             f"{p4[i,0]:.6f} {mass:.6f} 0 0 0\n")
+    mode = "clean standard Lund" if not extra_cols else (f"10 std + {len(extra_cols)} extra"
+           + (", incl. TRUTH amplitudes" if LUND_TRUTH else ", blind kinematics"))
     print(f"[lund] wrote {n} events in {nfiles} file(s) of <= {EVENTS_PER_FILE} "
-          f"-> {os.path.join(outdir, base)}_[0..{nfiles-1}].lund  (header: 10 std + {len(extra_cols)} extra"
-          f"{', incl. TRUTH amplitudes' if LUND_TRUTH else ', blind'}; see {base}_columns.txt)", flush=True)
+          f"-> {os.path.join(outdir, base)}_[0..{nfiles-1}].lund  ({mode}; see {base}_columns.txt)", flush=True)
 
 
 # ------------------------------------------------------------------ plots -----
@@ -388,15 +425,21 @@ def main():
     kd = os.path.join(HERE, "Kin_plots"); ld = os.path.join(HERE, "LUND_files")
     os.makedirs(kd, exist_ok=True); os.makedirs(ld, exist_ok=True)
     if MULTI:
-        print(f"[multi-energy] {N_EVENTS} {MESON} events at each of {MULTI_ENERGIES} GeV; "
-              f"Lund files per energy in their own subdir ...", flush=True)
-        evs = []
-        for E in MULTI_ENERGIES:
-            print(f"  E={E} GeV:", flush=True)
-            evE = generate(E, N_EVENTS, meta["MV"], meta["width"], meta["MH"], rng)
+        # relative beam luminosities (default equal = equal running time per beam)
+        lumis = [float(x) for x in os.environ.get("LUMI", ",".join(["1"] * len(MULTI_ENERGIES))).split(",")]
+        assert len(lumis) == len(MULTI_ENERGIES), "LUMI must list one value per beam energy"
+        print(f"[multi-energy] REALISTIC yields at {MULTI_ENERGIES} GeV, relative luminosities {lumis}; "
+              f"N(E) ~ L(E)*sigma(E), n_events={N_EVENTS} targets the highest-yield beam ...", flush=True)
+        evs, counts = generate_multi(MULTI_ENERGIES, meta, rng, lumis, N_EVENTS)
+        for E, evE in zip(MULTI_ENERGIES, evs):
             sub = os.path.join(ld, f"{E:g}GeV"); os.makedirs(sub, exist_ok=True)   # e.g. LUND_files/6.535GeV/
             write_lund(evE, meta, sub, f"{MESON}_{E:g}gev")
-            evs.append(evE)
+        with open(os.path.join(ld, "luminosity.txt"), "w") as f:                    # data-analysis normalization
+            f.write("# beam_energy_GeV   relative_luminosity   accepted_events\n")
+            for E, L, nE in zip(MULTI_ENERGIES, lumis, counts):
+                f.write(f"{E:g}  {L:g}  {nE}\n")
+        print(f"[multi-energy] accepted per beam: {dict(zip(MULTI_ENERGIES, counts))}; "
+              f"wrote {ld}/luminosity.txt", flush=True)
         ev = {k: np.concatenate([e[k] for e in evs]) for k in evs[0]}   # pooled -> combined plots only
     else:
         print(f"generating {N_EVENTS} {MESON} events at E={BEAM_ENERGY} GeV ...", flush=True)
