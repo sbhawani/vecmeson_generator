@@ -46,6 +46,10 @@ BW_MASS = os.environ.get("BW", "1") not in ("0", "", "false", "False")   # sampl
 #   flux : weight = virtual-photon flux x |amplitude|^2  (adds the physical Gamma(Q^2,x,y))
 #   toy  : weight = smooth toy cross section x |amplitude|^2  (legacy paper-study shape)
 WEIGHT = os.environ.get("WEIGHT", "amp")
+WEIGHTED = os.environ.get("WEIGHTED", "0") not in ("0", "", "false", "False")  # physical-yield (weighted) events
+# LUND_TRUTH=1 appends the 16 TRUTH amplitude values (T,U re/im) to the Lund header. OFF by default so
+# BLIND samples stay blind -- the amplitudes are the hidden truth. Turn ON only for your own validation.
+LUND_TRUTH = os.environ.get("LUND_TRUTH", "0") not in ("0", "", "false", "False")
 TMAX   = 4.0                                                              # flat t' sampling range [GeV^2]
 
 # --- Helicity amplitudes as functions of (Q^2, |t|).  EDIT THESE. ------------
@@ -187,14 +191,20 @@ def throw(E, n_pool, rng, MV, GV, MH):
 
 
 def generate(E, n_target, MV, GV, MH, rng):
-    """Accept-reject on wphys -> n_target events."""
+    """WEIGHTED=1: keep ALL flat-in-kinematics events, each carrying its physics weight wphys
+    (written to the Lund weight field) -> physical yields with NO accept-reject clipping, so the
+    downstream rate feature is the exact per-bin intensity (removes the fixed-N/kappa_E hack).
+    Otherwise: accept-reject on wphys -> n_target unweighted events (legacy)."""
     keep = {k: [] for k in ("Q2", "xB", "nu", "W", "tprime", "absT", "tmin", "eps",
-                            "CosTh", "phi", "Phi", "e", "p", "hp", "hm", "Ebeam", "hsign", "mV")}
+                            "CosTh", "phi", "Phi", "e", "p", "hp", "hm", "Ebeam", "hsign", "mV", "wphys")}
     have = 0
     while have < n_target:
         d = throw(E, max(200000, 4*(n_target - have)), rng, MV, GV, MH)
-        Wmax = np.percentile(d["wphys"], 99.9)
-        acc = rng.uniform(0, Wmax, len(d["wphys"])) < d["wphys"]
+        if WEIGHTED:
+            acc = np.ones(len(d["wphys"]), bool)                # keep all (flat, weighted)
+        else:
+            Wmax = np.percentile(d["wphys"], 99.9)
+            acc = rng.uniform(0, Wmax, len(d["wphys"])) < d["wphys"]
         for k in keep: keep[k].append(d[k][acc])
         have += int(acc.sum())
         print(f"  ... {have}/{n_target}", flush=True)
@@ -203,23 +213,53 @@ def generate(E, n_target, MV, GV, MH, rng):
 
 
 # ------------------------------------------------------------------- Lund -----
+# extra per-event header columns appended after the 10 standard Lund fields.
+# Standard Lund parsers read the first 10 fields and ignore the rest.
+LUND_KIN_COLS = ["Q2", "abs_t", "xB", "W", "CosTheta_decay", "phi_decay", "Phi_Trento", "eps"]
+LUND_AMP_COLS = ["T11", "ReT00", "ImT00", "ReT01", "ImT01", "ReT10", "ImT10", "ReT1m1", "ImT1m1",
+                 "U11", "ReU01", "ImU01", "ReU10", "ImU10", "ReU1m1", "ImU1m1"]
+
+
 def write_lund(ev, meta, outdir, base):
     """CLAS12/GEMC Lund, split into files of at most EVENTS_PER_FILE events (GEMC limit),
-    named <base>_0.lund, <base>_1.lund, ...  header(10) + one line per final-state particle(14):
-    idx lifetime type pid parent daughter px py pz E mass vx vy vz."""
+    named <base>_0.lund, <base>_1.lund, ...  particle lines(14):
+    idx lifetime type pid parent daughter px py pz E mass vx vy vz.
+    HEADER = the 10 standard Lund fields
+      [nparticles=4, A=1, Z=1, target_pol=0, beam_helicity, beam_type=11, E_beam, target_pid=2212,
+       process_id=0, weight=wphys]
+    followed by EXTRA per-event fields (cols 11..18): Q2, |t|, xB, W, cos(theta)_decay,
+      phi_decay, Phi_Trento, eps  (all reconstructable from the 4-vectors -- blind-safe).
+    If env LUND_TRUTH=1, cols 19..34 ALSO append the 16 TRUTH amplitude components [T11, Re/Im T00,
+      Re/Im T01, Re/Im T10, Re/Im T1m1, U11, Re/Im U01, Re/Im U10, Re/Im U1m1] at this event's
+      (Q2,|t|).  Leave LUND_TRUTH OFF for BLIND samples so the hidden amplitudes are not revealed.
+    A companion <base>_columns.txt documents the column order."""
     parts = [(11, ev["e"], ME), (2212, ev["p"], M),
              (meta["pid_hp"], ev["hp"], meta["MH"]), (meta["pid_hm"], ev["hm"], meta["MH"])]
     n = len(ev["Q2"]); nfiles = int(np.ceil(n / EVENTS_PER_FILE))
+    Apar = amps_to_params(ev["Q2"], ev["absT"]) if LUND_TRUTH else None    # truth amplitudes only if requested
+    extra_cols = LUND_KIN_COLS + (LUND_AMP_COLS if LUND_TRUTH else [])
+    with open(os.path.join(outdir, f"{base}_columns.txt"), "w") as fc:
+        std = ["nparticles", "A", "Z", "target_pol", "beam_helicity", "beam_type", "E_beam",
+               "target_pid", "process_id", "weight_wphys"]
+        fc.write(f"Lund header columns (1-indexed){'  [LUND_TRUTH=1: amplitudes included]' if LUND_TRUTH else '  [blind: no amplitudes]'}:\n")
+        for c, name in enumerate(std + extra_cols, 1):
+            fc.write(f"  {c:2d}  {name}\n")
     for fi in range(nfiles):
         lo, hi = fi*EVENTS_PER_FILE, min((fi+1)*EVENTS_PER_FILE, n)
         with open(os.path.join(outdir, f"{base}_{fi}.lund"), "w") as f:
+            wt = ev["wphys"] if "wphys" in ev else np.ones(n)     # per-event physics weight (Lund field 10)
             for i in range(lo, hi):
-                f.write(f"4 1 1 0 {int(ev['hsign'][i])} 11 {ev['Ebeam'][i]:.4f} 2212 0 1.0\n")
+                extra = (f"{ev['Q2'][i]:.5g} {ev['absT'][i]:.5g} {ev['xB'][i]:.5g} {ev['W'][i]:.5g} "
+                         f"{ev['CosTh'][i]:.5g} {ev['phi'][i]:.5g} {ev['Phi'][i]:.5g} {ev['eps'][i]:.5g}")
+                if LUND_TRUTH:
+                    extra += " " + " ".join(f"{a:.5g}" for a in Apar[i])
+                f.write(f"4 1 1 0 {int(ev['hsign'][i])} 11 {ev['Ebeam'][i]:.4f} 2212 0 {wt[i]:.6g} {extra}\n")
                 for j, (pid, p4, mass) in enumerate(parts, start=1):
                     f.write(f"{j} 0 1 {pid} 0 0 {p4[i,1]:.6f} {p4[i,2]:.6f} {p4[i,3]:.6f} "
                             f"{p4[i,0]:.6f} {mass:.6f} 0 0 0\n")
     print(f"[lund] wrote {n} events in {nfiles} file(s) of <= {EVENTS_PER_FILE} "
-          f"-> {os.path.join(outdir, base)}_[0..{nfiles-1}].lund", flush=True)
+          f"-> {os.path.join(outdir, base)}_[0..{nfiles-1}].lund  (header: 10 std + {len(extra_cols)} extra"
+          f"{', incl. TRUTH amplitudes' if LUND_TRUTH else ', blind'}; see {base}_columns.txt)", flush=True)
 
 
 # ------------------------------------------------------------------ plots -----
