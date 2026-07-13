@@ -27,6 +27,11 @@ PI = np.pi
 # ============================ USER SECTION ===================================
 MESON       = os.environ.get("MESON", "phi")          # "phi" or "rho0"
 BEAM_ENERGY = float(os.environ.get("E", "10.6"))       # GeV
+# Lepton beam: "e" (electron, JLab/CLAS12) or "mu" (muon, COMPASS-like). At these energies the lepton
+# mass is negligible; the meson production is via the virtual photon and is beam-flavor-independent.
+BEAM = os.environ.get("BEAM", "e").lower()
+M_LEP = ME if BEAM == "e" else 0.1056584               # beam lepton mass [GeV]
+LEP_PID = 11 if BEAM == "e" else 13                    # PDG id of beam / scattered lepton
 N_EVENTS    = int(os.environ.get("N", "20000"))        # total events generated
 EVENTS_PER_FILE = int(os.environ.get("CHUNK", "5000")) # events per Lund file (GEMC limit); N/CHUNK files
 BEAM_POL    = float(os.environ.get("POL", "0.0"))      # beam helicity magnitude (0 = unpolarised)
@@ -129,7 +134,7 @@ def throw(E, n_pool, rng, MV, GV, MH):
     """Full DVEP kinematics -> per-event production vars, decay angles, lab 4-vectors of
     e', p', h+, h-, and the physics weight wphys = sigma(Q2,xB,t') * W(Omega; amplitudes).
     MV is the pole mass, GV the width (per-event mass drawn from the Breit-Wigner)."""
-    k = np.array([E, 0, 0, np.sqrt(E**2 - ME**2)])
+    k = np.array([E, 0, 0, np.sqrt(E**2 - M_LEP**2)])
     mv = sample_meson_mass(rng, n_pool, MV, GV, MH)              # per-event invariant mass
     Q2 = rng.uniform(Q2MIN, Q2MAX, n_pool)                      # FLAT: shape set by the weight below
     xB = rng.uniform(XBMIN, XBMAX, n_pool); tprime = rng.uniform(0.0, TMAX, n_pool)   # FLAT in t'
@@ -265,7 +270,7 @@ def write_lund(ev, meta, outdir, base):
       LUND_TRUTH=1 -> ALSO cols 19..34: the 16 TRUTH amplitude components at (Q2,|t|)
                       (reveals the hidden amplitudes -- YOUR validation only).
     A companion <base>_columns.txt documents the column order."""
-    parts = [(11, ev["e"], ME), (2212, ev["p"], M),
+    parts = [(LEP_PID, ev["e"], M_LEP), (2212, ev["p"], M),
              (meta["pid_hp"], ev["hp"], meta["MH"]), (meta["pid_hm"], ev["hm"], meta["MH"])]
     n = len(ev["Q2"]); nfiles = int(np.ceil(n / EVENTS_PER_FILE))
     Apar = amps_to_params(ev["Q2"], ev["absT"]) if LUND_TRUTH else None    # truth amplitudes only if requested
@@ -289,7 +294,7 @@ def write_lund(ev, meta, outdir, base):
                              f"{ev['CosTh'][i]:.5g} {ev['phi'][i]:.5g} {ev['Phi'][i]:.5g} {ev['eps'][i]:.5g}")
                 if LUND_TRUTH:
                     extra += " " + " ".join(f"{a:.5g}" for a in Apar[i])
-                f.write(f"4 1 1 0 {int(ev['hsign'][i])} 11 {ev['Ebeam'][i]:.4f} 2212 0 {wt[i]:.6g}{extra}\n")
+                f.write(f"4 1 1 0 {int(ev['hsign'][i])} {LEP_PID} {ev['Ebeam'][i]:.4f} 2212 0 {wt[i]:.6g}{extra}\n")
                 for j, (pid, p4, mass) in enumerate(parts, start=1):
                     f.write(f"{j} 0 1 {pid} 0 0 {p4[i,1]:.6f} {p4[i,2]:.6f} {p4[i,3]:.6f} "
                             f"{p4[i,0]:.6f} {mass:.6f} 0 0 0\n")

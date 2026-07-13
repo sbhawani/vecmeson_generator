@@ -26,11 +26,24 @@ Python 3.8+ with NumPy and Matplotlib: `pip install -r requirements.txt`
 
 ## Running
 
+All inputs are **environment variables** set before the command (there are no `-`/`--` dash-flags;
+the only argv token read is the literal `--multi-energy`, equivalent to `MULTI=1`):
+
 ```bash
-python generate_events.py                           # phi, 10.6 GeV, 20k events
-MESON=rho0 N=50000 E=7.546 python generate_events.py
-MESON=rho0 MULTI=1 WEIGHT=flux N=200000 python generate_events.py   # realistic multi-beam
+python generate_events.py                                          # phi, 10.6 GeV, 20k events, default windows
+
+# event count + kinematic windows (the "nevents / Q2 / xB" controls)
+N=50000 Q2MIN=1.5 Q2MAX=3.0 XBMIN=0.12 XBMAX=0.28 python generate_events.py
+
+MESON=rho0 N=50000 E=7.546 python generate_events.py               # rho0 at a single beam energy
+MESON=rho0 BEAM=mu E=170 N=100000 python generate_events.py        # muon beam, COMPASS-like 170 GeV
+MESON=rho0 MULTI=1 WEIGHT=flux N=200000 python generate_events.py  # realistic multi-beam (Rosenbluth)
 ```
+
+The count and windows take effect exactly as set: e.g. `N=300 Q2MIN=1.5 Q2MAX=3.0 XBMIN=0.12
+XBMAX=0.28` writes 300 events with `Q2` in `1.50..2.99` and `x_B` in `0.12..0.28` (verify via the
+`Q2`/`xB` columns in the Lund header when `LUND_KIN`/`LUND_TRUTH` is on). The random `SEED` is fixed
+in the source (`SEED = 1`), so runs are reproducible; edit that line for a different sample.
 
 Options are environment variables:
 
