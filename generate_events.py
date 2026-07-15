@@ -46,10 +46,15 @@ MESONS = {  # vector-meson pole mass, width, decay-hadron mass, PDG ids, labels
     "rho0": dict(MV=0.775260, width=0.149100, MH=0.139570, pid_hp=+211, pid_hm=-211, hp="pi+", hm="pi-", htex=r"\pi^+\pi^-"),
 }
 BW_MASS = os.environ.get("BW", "1") not in ("0", "", "false", "False")   # sample the Breit-Wigner line shape
-# How the Q^2/x/t event yield is weighted (kinematics are sampled FLAT, so this alone sets the shape):
-#   amp  : weight = |amplitude|^2 only -> the Q^2/t dependence comes PURELY from your amplitudes (default)
-#   flux : weight = virtual-photon flux x |amplitude|^2  (adds the physical Gamma(Q^2,x,y))
-#   toy  : weight = smooth toy cross section x |amplitude|^2  (legacy paper-study shape)
+# How the Q^2/x/t event YIELD is weighted (kinematics are sampled FLAT, so this alone sets the shape).
+# NOTE: the yield weight sets only the KINEMATIC density; it does NOT enter the decay-angle distribution
+# (the SDMEs/amplitudes) -- the flux cancels there. So 'amp' is fine for extraction / acceptance MC.
+#   amp  : W(Omega) only  -> Q^2/t dependence purely from your amplitudes                       (default)
+#   flux : x the Diehl virtual-photon flux (y^2/(1-eps))(1-xB)/xB/Q^2 -- the CORRECT flux for the
+#          Diehl W(Omega) used here (arXiv:0704.1565); use this for realistic yields
+#   vpk  : x vpK's dsigma_3fold (= Diehl flux x (1+eps)) -- exact vpK cross-check ONLY, not physical
+#   hand : x the Hand flux ~ (1-y)K/(Q^2(1-eps)) -- DEPRECATED, inconsistent with the Diehl W
+#   toy  : x a smooth legacy toy cross section
 WEIGHT = os.environ.get("WEIGHT", "amp")
 WEIGHTED = os.environ.get("WEIGHTED", "0") not in ("0", "", "false", "False")  # physical-yield (weighted) events
 # Header columns beyond the 10 standard Lund fields:
@@ -108,6 +113,8 @@ def amps_to_params(Q2, t):
                      re(U10), im(U10), re(U1m1), im(U1m1)], axis=-1)
 
 
+# ISSUE(vpk-comp #8): Blatt-Weisskopf L=1 barrier lineshape; vpK uses a Jackson running-width BW (broader
+# high-mass tail). Match the lineshape for the final comparison. See ISSUES_vpk_comparison.md.
 def sample_meson_mass(rng, n, M0, Gamma, mh):
     """Draw n meson invariant masses from a relativistic Breit-Wigner with a mass-dependent
     P-wave width (V -> h+h-, L=1). Handles both the broad rho0 and the narrow, KK-threshold-
@@ -140,7 +147,8 @@ def throw(E, n_pool, rng, MV, GV, MH):
     xB = rng.uniform(XBMIN, XBMAX, n_pool); tprime = rng.uniform(0.0, TMAX, n_pool)   # FLAT in t'
     nu = Q2/(2*M*xB); y = nu/E; W2 = M*M + 2*M*nu - Q2; Ep = E - nu
     cose = 1 - Q2/(2*E*np.clip(Ep, 1e-6, None))
-    ok = (y > 0) & (y < 0.99) & (W2 > (M+mv)**2) & (Ep > 0.3) & (np.abs(cose) < 1) & (tprime < 4)
+    # FIXED(vpk-comp #7a): honour TMAX (was a hardcoded 'tprime < 4' that silently overrode TMAX>4).
+    ok = (y > 0) & (y < 0.99) & (W2 > (M+mv)**2) & (Ep > 0.3) & (np.abs(cose) < 1) & (tprime < TMAX)
     Q2, xB, tprime, nu, y, W2, Ep, cose, mv = (v[ok] for v in (Q2, xB, tprime, nu, y, W2, Ep, cose, mv))
     Wm = np.sqrt(W2); gam = 2*M*xB/np.sqrt(Q2)
     eps = (1 - y - 0.25*gam**2*y**2)/(1 - y + 0.5*y**2 + 0.25*gam**2*y**2)
@@ -195,8 +203,21 @@ def throw(E, n_pool, rng, MV, GV, MH):
     if WEIGHT == "toy":
         wt = cross_section(Q2, xB, tprime)                      # legacy smooth toy shape
     elif WEIGHT == "flux":
-        Kf = (Wm**2 - M**2)/(2*M)                               # Hand equivalent photon energy
-        wt = (1.0 - y)*Kf/(Q2*np.clip(1.0 - eps, 1e-3, None))   # transverse virtual-photon flux (relative)
+        # CORRECT flux for our Diehl W(Omega): the Diehl-Sapeta leptonic virtual-photon flux
+        #   Gamma ~ (y^2/(1-eps)) * (1-xB)/xB * (1/Q^2)          [arXiv:0704.1565].
+        # This is the flux the u-matrix / W(Omega) normalization is DEFINED against (NOT the Hand flux).
+        # No extra (1+eps): our W already carries sigma_T + eps*sigma_L, so adding it would double-count T/L.
+        wt = (y**2/np.clip(1.0-eps, 1e-3, None))*(1.0-xB)/np.clip(xB, 1e-3, None)/Q2
+    elif WEIGHT == "vpk":
+        # Exact reproduction of vpK's dsigma_3fold = Diehl flux x (dsigmaT+eps*dsigmaL) with placeholders
+        # dsigmaT=dsigmaL=1 -> x(1+eps).  For a bit-for-bit vpK cross-check ONLY; the (1+eps) is redundant
+        # with our W, so this is not the physical flux -- use WEIGHT=flux for physics.
+        wt = (y**2/np.clip(1.0-eps, 1e-3, None))*(1.0-xB)/np.clip(xB, 1e-3, None)/Q2*(1.0+eps)
+    elif WEIGHT == "hand":
+        # (DEPRECATED) Hand equivalent-photon transverse flux ~ (1-y)*K/(Q^2(1-eps)), K=(W^2-M^2)/2M.
+        # A different flux convention -- INCONSISTENT with the Diehl W(Omega) used here; kept for reference.
+        Kf = (Wm**2 - M**2)/(2*M)
+        wt = (1.0 - y)*Kf/(Q2*np.clip(1.0 - eps, 1e-3, None))
     else:                                                       # "amp": Q^2/t dependence from the amplitudes only
         wt = 1.0
     wphys = np.nan_to_num(wt*Wp)

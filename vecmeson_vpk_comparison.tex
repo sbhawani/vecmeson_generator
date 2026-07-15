@@ -1,0 +1,372 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{lmodern}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage[table]{xcolor}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage[colorlinks=true,allcolors=vpk]{hyperref}
+
+\definecolor{vpk}{HTML}{2E62A8}
+\definecolor{ours}{HTML}{C0421F}
+\definecolor{shade}{HTML}{EEF1F5}
+\definecolor{goodbg}{HTML}{E7F1E9}
+\definecolor{rulec}{HTML}{C9CFD8}
+
+\newcommand{\vpk}[1]{\textcolor{vpk}{#1}}
+\newcommand{\ours}[1]{\textcolor{ours}{#1}}
+\newcommand{\uij}[2]{u^{#1}_{#2}}
+\captionsetup{font=small,labelfont=bf,labelsep=period}
+\setlength{\parskip}{0.45em}
+\setlength{\parindent}{0pt}
+
+% shaded box helper
+\newcommand{\shadebox}[2][shade]{%
+  \begingroup\setlength{\fboxsep}{10pt}%
+  \noindent\colorbox{#1}{\parbox{\dimexpr\linewidth-2\fboxsep\relax}{#2}}%
+  \endgroup\par\vspace{0.6em}}
+
+\begin{document}
+
+% ---------------- Title ----------------
+{\LARGE\bfseries The \ours{vecmeson} generator vs.\ \vpk{vpK}\par}
+\vspace{0.35em}
+{\large A like-for-like comparison for diffractive vector-meson electroproduction\par}
+\vspace{0.25em}
+{\color{vpk}\rule{\linewidth}{1.2pt}}
+\vspace{0.4em}
+
+\textbf{Reaction:} $e\,p \to e'\,p'\,V,\ \ V \to h^{+}h^{-}$ \quad($V=\rho^0/\phi$)\hfill
+\textbf{Prepared for:} H.\ Avakian \quad\textbf{Status:} stage 5 of 5
+
+\vspace{0.8em}
+
+\shadebox{\textbf{Summary.} Both generators are driven by the same object---the Diehl unpolarised
+structure functions $\uij{\nu\nu'}{\mu\mu'}=T\,T^{\dagger}$---and the same angular intensity $W(\Omega)$.
+Fed \emph{identical} inputs, with all seven observables rebuilt from the output four-vectors by one common
+routine, the kinematics and the production angle $\Phi$ agree, but the \textbf{decay angles reveal a
+frame-convention difference}: vecmeson-gen uses the standard \emph{s-channel helicity} frame (meson
+direction in the $\gamma^{*}p$ CM); \vpk{vpK} uses the meson direction \emph{in the lab}. Each is clean only
+in its own frame. The helicity frame is the one the $W$-kernels are defined in, so it is the correct one for
+SDME / $u$ extraction. After matching the flux (\S7) and reconciling vpK's decay to the CM axis (\S9), the two
+agree across \emph{all seven} observables for the complete natural-parity amplitude set.}
+
+% ---------------- 1 ----------------
+\section{The two generators}
+Both simulate $\gamma^{*}p\to V p$ followed by $V\to h^{+}h^{-}$, weight events by the virtual-photon flux
+times the helicity-dependent decay intensity, and write CLAS12/GEMC Lund files. They were written
+independently and share no code.
+
+\begin{center}\small
+\begin{tabular}{@{}p{0.20\linewidth} p{0.36\linewidth} p{0.36\linewidth}@{}}
+\toprule
+ & \vpk{\textbf{vpK} (\texttt{gagrho})} & \ours{\textbf{vecmeson-generator}} \\
+\midrule
+Language & C++17, no external libraries & Python / NumPy \\
+Physics input & the $u$-matrix set directly, per element (\texttt{generator.h}) & helicity amplitudes $T_{\mu\nu}$; $u=T\,T^{\dagger}$ built internally \\
+Angular intensity & $W_{UU}=\cos^2\!\theta\,\mathrm{LL}+\sqrt2\sin\theta\cos\theta\,\mathrm{LT}+\sin^2\!\theta\,\mathrm{TT}$ (\texttt{w\_kernels.hpp}) & Diehl--Sapeta sum $W=(\sigma_T{+}\varepsilon\sigma_L)A+\sum_k g_k f_k$ (\texttt{diehl\_w.py}) \\
+Decay-angle frame & meson direction in the \textbf{lab} & meson direction in the $\gamma^{*}p$ \textbf{CM} \\
+Output & Lund, 7 particles + header angles & Lund, 4 particles + header kinematics \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ---------------- 2 ----------------
+\section{The shared physics}
+For unpolarised beam and target and nucleon-helicity non-flip, the amplitude to make a meson of helicity
+$\nu$ from a photon of helicity $\mu$ is $T_{\nu\mu}$. The measurable decay distribution is governed by the
+bilinears (Diehl \& Sapeta, \textit{Eur.\ Phys.\ J.\ C} \textbf{52} (2007) 933):
+\begin{equation}
+\uij{\nu\nu'}{\mu\mu'}=\tfrac12\!\sum_{\lambda}\!\Big(T_{\nu\mu,\lambda}\,T^{*}_{\nu'\mu',\lambda}
++(\nu,\mu\!\leftrightarrow\!-\nu,-\mu)\Big),\qquad
+\sigma_L\propto \uij{00}{00},\qquad \sigma_T\propto \uij{++}{++}.
+\end{equation}
+The unpolarised decay intensity is a fixed linear combination of these $u$'s and the decay-angle functions
+$f_k$:
+\begin{equation}
+W(\cos\theta,\varphi,\Phi)=(\sigma_T+\varepsilon\,\sigma_L)\,A(\theta)+\sum_k g_k(u,\varepsilon)\,f_k(\theta,\varphi,\Phi).
+\end{equation}
+vpK writes this through the $W_{UU}$ kernels; vecmeson-gen writes the equivalent Diehl--Sapeta sum.
+\textbf{Same physics, two encodings.} That is exactly what makes a numerical cross-check meaningful: if the
+inputs match, the outputs must agree observable by observable.
+
+% ---------------- 3 ----------------
+\section{Method}
+To compare the machinery rather than two models, both generators are given the \textbf{same} $u$-matrix, the
+\textbf{same} windows ($E=10.6$~GeV, $Q^2\in[1,9]$, $x_B\in[0.09,0.68]$, $|t|\le5.5$), and the same meson
+($\rho^0$). The study walks three inputs:
+
+\begin{center}\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Config & Non-zero amplitudes & Expected decay distribution \\
+\midrule
+full model & vpK default $u$-matrix (all elements) & full angular structure \\
+pure $T_{00}$ & only $\uij{00}{00}$ (longitudinal) & $W\propto\cos^2\!\theta$, flat in $\varphi,\Phi$ \\
+pure $T_{11}$ & only $\uij{++}{++}$ (transverse) & $W\propto\sin^2\!\theta$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All seven observables are recomputed from the output four-vectors with a \emph{single} routine applied to
+both files, so no per-generator header convention can bias the comparison:
+\begin{equation}
+Q^2=-(k-k')^2,\qquad x_B=\frac{Q^2}{2\,P\!\cdot\!q},\qquad W=\sqrt{(q+P)^2},\qquad |t|=-(q-p_V)^2 .
+\end{equation}
+The two decay angles and the Trento angle $\Phi$ are built in the meson rest frame; the \emph{choice of
+quantization axis} to reach that frame is the subject of stage~2.
+
+% ---------------- 4 ----------------
+\section{Stage 1 --- pipeline validation}
+Before any physics claim, the common reader was checked end to end: it parses both Lund formats (7-particle
+vpK, 4-particle vecmeson-gen), reconstructs the beam and target from the header, and returns all seven observables in
+physical ranges for both generators. The production angle $\Phi$ and $Q^2$ already overlap at this stage.
+With the reader trusted, we set the first matched input.
+
+% ---------------- 5 ----------------
+\section{Stage 2 --- pure longitudinal, and the frame check}
+Setting only $\uij{00}{00}\neq0$ is the cleanest possible benchmark: the intensity collapses
+\emph{analytically} to
+\begin{equation}
+W(\cos\theta,\varphi,\Phi)=\frac{3}{4\pi}\cos^2\!\theta\qquad\text{(no $\varphi$ or $\Phi$ dependence at all).}
+\end{equation}
+Every $\varphi$- or $\Phi$-modulating term carries a $u$-element that is zero here, so a correct generator
+must return an \emph{exact} $\cos^2\!\theta$ and a \emph{flat} $\varphi$. Both generators reproduce their own
+header angle perfectly---but when the decay angle is rebuilt from the four-vectors, the result depends on
+which frame you build it in.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{doc_money.png}
+\caption{Decay angles for the pure-$T_{00}$ sample, rebuilt from the four-vectors. \textbf{Left:} s-channel
+helicity frame---\ours{vecmeson-gen} is exact $\cos^2\!\theta$ and flat $\varphi$; \vpk{vpK} carries a
+pedestal. \textbf{Right:} vpK's lab frame---the roles swap. Each generator is clean \emph{only in its own
+frame}.}
+\end{figure}
+
+The polar angle recovers the analytic shape in the matching frame (density in $|\cos\theta|$ bins, normalised
+to $1.5\cos^2\!\theta$):
+
+\begin{center}\small
+\begin{tabular}{@{}lcccccl@{}}
+\toprule
+$|\cos\theta|$ bin & 0.1 & 0.3 & 0.5 & 0.7 & 0.9 & convention \\
+\midrule
+$1.5\cos^2\!\theta$ (exact) & 0.015 & 0.135 & 0.375 & 0.735 & 1.215 & --- \\
+\rowcolor{goodbg}\ours{vecmeson-gen --- helicity} & 0.02 & 0.14 & 0.38 & 0.74 & 1.21 & matches $\checkmark$ \\
+\vpk{vpK --- helicity} & 0.23 & 0.29 & 0.44 & 0.64 & 0.90 & pedestal \\
+\rowcolor{goodbg}\vpk{vpK --- lab} & 0.02 & 0.14 & 0.38 & 0.75 & 1.22 & matches $\checkmark$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The azimuth gives an even sharper single-number test. For pure longitudinal every $\varphi$ moment must
+vanish; the frame mismatch shows up as a spurious $\langle\cos2\varphi\rangle$:
+
+\begin{center}\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+ & helicity frame & lab frame \\
+\midrule
+\ours{vecmeson-gen}\ \ $\langle\cos2\varphi\rangle$ & \cellcolor{goodbg}$+0.006\pm0.010$ (flat $\checkmark$) & $+0.197\pm0.010$ \\
+\vpk{vpK}\ \ $\langle\cos2\varphi\rangle$ & $+0.151\pm0.003$ & \cellcolor{goodbg}$+0.001\pm0.003$ (flat $\checkmark$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A flat azimuth maps into a $\cos2\varphi$ pattern under the wrong quantization axis because the
+lab\,$\leftrightarrow$\,CM meson-direction rotation is anisotropic about the production plane---a purely
+geometric consequence of the frame choice, no new physics.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{doc_7panel_hel.png}
+\caption{All seven observables, \textbf{s-channel helicity frame} (after the flux match of \S7). The
+kinematics ($Q^2,|t|,x_B,W$) and $\Phi$ agree (ratios $\sim$1); only the decay angles $\cos\theta,\varphi$
+carry vpK's frame offset (\S6).}
+\end{figure}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{doc_7panel_lab.png}
+\caption{The same, \textbf{vpK lab frame}. The decay-angle agreement now flips to vpK, confirming the
+difference is purely the frame convention.}
+\end{figure}
+
+% ---------------- 6 ----------------
+\section{Which frame is correct}
+The $W$-kernels that \emph{both} generators use are derived in the \textbf{s-channel helicity frame}
+(Schilling \& Wolf 1973; Diehl--Sapeta 2007): the quantization axis is the meson momentum in the
+$\gamma^{*}p$ centre-of-mass.
+
+\shadebox[goodbg]{\textbf{\ours{s-channel helicity --- correct.}}\ \ $\hat{z}=\hat{p}_V$ in the
+$\gamma^{*}p$ CM. Our generator; the frame the SDMEs / $u$'s are defined in.}
+\shadebox{\textbf{\vpk{vpK lab.}}\ \ $\hat{z}=\hat{p}_V$ in the lab
+(\texttt{decay2body.h}: \texttt{uz = parent.vect()}). Self-consistent, but a different axis.}
+
+Because vpK feeds its lab-frame angle into a kernel derived for the CM axis, a pure-longitudinal sample is
+$\cos^2\!\theta$ in vpK's own frame but acquires a $\sin^2\!\theta$ pedestal and a $\cos2\varphi$ term when
+expressed in the helicity frame. The two axes coincide at forward production and separate as $|t|$ grows, so
+the effect is largest exactly where the transverse/longitudinal separation is done.
+
+\shadebox{\textbf{Suggested reconciliation.} Align vpK's decay basis to the meson direction in the
+$\gamma^{*}p$ CM (boost the daughter build into the CM before setting \texttt{uz}), so the generated angles
+live in the same frame its own kernels assume. After that the two generators can be compared on physics
+alone.}
+
+% ---------------- 7 ----------------
+\section{Kinematic dependencies --- diagnosis and fix}
+With the $u$-matrix held constant (pure $T_{00}$), every non-angular difference is \emph{kinematics}.
+Rebuilding all seven observables and the drivers ($y,\varepsilon,x_B,m_V$) isolates the causes; all but the
+meson lineshape are now resolved:
+
+\begin{center}\small
+\begin{tabular}{@{}cp{0.15\linewidth}p{0.17\linewidth}p{0.45\linewidth}@{}}
+\toprule
+\# & Observable & Status & Root cause \; / \; fix \\
+\midrule
+1 & $Q^2$ & agrees & both weights $\propto 1/Q^2$ \\
+2 & $\Phi$ (Trento) & agrees (flat) & no interference for pure $T_{00}$ \\
+3 & $\cos\theta,\varphi$ & \textbf{resolved} & frame offset (helicity vs lab axis); vpK patched to the CM axis --- \S9 \\
+4 & $y,\ \varepsilon$ & \textbf{fixed} & flux: \texttt{WEIGHT=vpk} reproduces vpK's $d\sigma_{3\mathrm{fold}}$ \\
+5 & $x_B$ & \textbf{fixed} (via \#4) & was flux-driven \\
+6 & $W$ & \textbf{fixed} (via \#4) & downstream of $x_B$ \\
+7 & $|t|$ & \textbf{fixed} & \texttt{tprime<TMAX}; the $2q^{*}p^{*}$ Jacobian cancels \\
+8 & $m_V$ & open (minor) & \emph{both} rel.\ BW, pole $M_0,\Gamma$ match --- only diff is the Blatt--Weisskopf barrier (\S9) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{doc_fluxfix.png}
+\caption{The flux fix. \textbf{Top:} with the Hand flux, vecmeson-gen $y,x_B,W$ are shifted from vpK. \textbf{Bottom:}
+the new \texttt{WEIGHT=vpk} mode reproduces vpK's $d\sigma_{3\mathrm{fold}}$ and the three overlap.}
+\end{figure}
+
+The dominant driver was the \textbf{flux}: vecmeson-gen used the Hand transverse flux
+$\Gamma_T\propto(1-y)K/(Q^2(1-\varepsilon))$; vpK uses $d\sigma_{3\mathrm{fold}}\propto
+y^2/(1-\varepsilon)\cdot(1-x_B)/x_B\cdot(1/Q^2)(1+\varepsilon)$. The $y$-dependence is essentially opposite,
+so vpK sat at higher $y$, lower $\varepsilon$, lower $x_B$, higher $W$. Adding a \texttt{WEIGHT=vpk} mode
+brings $y,\varepsilon,x_B,W$ and $|t|$ into agreement (ratios $\sim$1). The $|t|$ items resolved with it:
+(a) the hardcoded \texttt{tprime<4} is fixed to \texttt{tprime<TMAX}; (b) vpK's $2q^{*}p^{*}$ factor only
+compensates its uniform-$\cos\theta^{*}$ sampling and cancels---vecmeson-gen samples $t'$ flat, so none is needed.
+Two residuals remain: the meson lineshape (\#8, minor) and vecmeson-gen' $|t|$ tail past vpK's $|t|\le5.5$ cut. For
+the upcoming $u$-matrix port, mind the $t$-sign (vpK Mandelstam $t<0$, vecmeson-gen $|t|$). All logged with code
+references in \texttt{ISSUES\_vpk\_comparison.md}.
+
+% ---------------- 7b ----------------
+\section{Amplitude sweep --- the full natural-parity set}
+With the flux matched (\S7) and each amplitude turned on alone (constant; in vecmeson-gen a single $T$, in vpK the
+corresponding $u=TT^\dagger$ elements, generated from the same \texttt{build\_T} so the two are identical by
+construction), the full set was run one at a time. The decay polar angle follows the \textbf{meson} helicity,
+and \textbf{vpK and vecmeson-gen agree for every amplitude} (shown in native frames; the frame offset of \S6 is a
+separate effect):
+
+\begin{center}\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+amplitude & meson hel. & $\cos\theta$ & $\langle\cos2\varphi\rangle$ & vpK vs vecmeson-gen \\
+\midrule
+$T_{00}$   & $0$    & $\cos^2\theta$ & $0$    & agree \\
+$T_{01}$   & $0$    & $\cos^2\theta$ & $0$    & agree \\
+$T_{11}$   & $\pm1$ & $\sin^2\theta$ & $0$    & agree \\
+$T_{10}$   & $\pm1$ & $\sin^2\theta$ & $+0.50$ & agree \\
+$T_{1-1}$  & $\pm1$ & $\sin^2\theta$ & $0$    & agree \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{doc_sweep.png}
+\caption{The five natural-parity amplitudes, one at a time (vpK vs vecmeson-gen, native frames, matched flux).
+\textbf{Top:} $\cos\theta$ --- meson-longitudinal amplitudes ($T_{00},T_{01}$) give $\cos^2\theta$,
+meson-transverse ($T_{11},T_{10},T_{1-1}$) give $\sin^2\theta$. \textbf{Bottom:} $\varphi$ --- flat except
+$T_{10}$, which carries a clear $\cos2\varphi$. Every vpK curve overlaps its vecmeson-gen counterpart.}
+\end{figure}
+
+% ---------------- 8b ----------------
+\section{Frame reconciliation --- vpK in the helicity frame}
+Item \#3 --- the one genuine physics discrepancy --- is a convention, not a bug: vpK builds its decay about
+the meson direction in the \emph{lab} (\texttt{decay2body.h}), whereas the Diehl kernels are defined about the
+$\gamma^{*}p$-CM (helicity) direction. Patching vpK's \texttt{produce\_\_3} to build the decay about the meson
+momentum \emph{in the CM} (reusing \texttt{decay()} unchanged, fed the CM-boosted meson, daughters boosted back
+to the lab) removes the offset entirely:
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.82\linewidth]{doc_framefix.png}
+\caption{Pure $T_{00}$, $\cos\theta$ recomputed in the helicity frame. \textbf{Left:} vpK in its lab frame
+carries the $\sin^2\theta$ pedestal. \textbf{Right:} with vpK's decay basis moved to the CM meson direction,
+vpK and vecmeson-gen both collapse onto the exact $\tfrac32\cos^2\theta$.}
+\end{figure}
+
+Repeating the full sweep with the patched vpK, \textbf{both generators now agree on the decay angles too} ---
+$\cos\theta$ and $\varphi$, for every amplitude, in one common (correct) frame:
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{doc_sweep_hel.png}
+\caption{The five amplitudes with \emph{both} generators in the s-channel helicity frame. Every vpK curve
+overlaps its vecmeson-gen counterpart in $\cos\theta$ (top) and $\varphi$ (bottom): the full angular structure now
+matches, not just the kinematics.}
+\end{figure}
+
+With the flux matched (\S7) and the decay frame reconciled, vpK and vecmeson-gen agree across \emph{all seven}
+observables for the complete natural-parity set. The change is isolated to \texttt{produce\_\_3} (in a working
+copy, not H.A.'s original) and is offered for discussion --- the physics case being that the $W$-kernels are
+derived in the helicity frame.
+
+% ---------------- 8 ----------------
+\section{Meson lineshape $m_V$ --- for discussion}
+This is the one open kinematic item (\#8). \textbf{Both generators use a relativistic Breit--Wigner} with a
+Jackson P-wave running width $\Gamma(m)=\Gamma_0\,(p/p_0)^3\,(M_0/m)$, and the pole parameters are nearly
+identical:
+
+\begin{center}\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+ & vecmeson-gen (\texttt{vecmeson-gen}) & vpK (\texttt{gagrho.cpp}) \\
+\midrule
+$M_0$ & 0.77526 GeV (current PDG) & 0.77 GeV \\
+$\Gamma_0$ & 0.1491 GeV & 0.1502 GeV \\
+running width & Jackson $\times$ \textbf{Blatt--Weisskopf} $B(p)$ & bare Jackson \\
+$B(p)$ & $\dfrac{1+(p_0R)^2}{1+(pR)^2},\ R=5~\mathrm{GeV}^{-1}$ & --- (absent) \\[4pt]
+mass window & $[\,2m_\pi,\ M_0+8\Gamma_0\,]$ & $[\,2m_\pi,\ \min(W{-}M_p,\ M_0{+}5\Gamma_0)\,]$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+(The README's $M_0=0.7683$ is stale; the code sets 0.77.) So the pole mass and width agree to a few MeV --- the
+\textbf{only structural difference is the Blatt--Weisskopf barrier}, present in vecmeson-gen and absent in vpK.
+
+\begin{figure}[h]\centering
+\includegraphics[width=\linewidth]{doc_bw.png}
+\caption{\textbf{Left:} analytic $\rho^0$ lineshapes. vpK's bare Jackson and vecmeson-gen \emph{without} the barrier
+coincide (the pole masses match); the Blatt--Weisskopf barrier (vecmeson-gen, solid) sharpens the peak and suppresses
+the high-mass tail above $\sim0.9$ GeV. \textbf{Right:} the generated $m_{\pi\pi}$ (folding in phase space):
+vpK's tail is slightly longer, $\langle m\rangle=0.865$ vs $0.832$ GeV.}
+\end{figure}
+
+\textbf{For discussion with H.A.} The Blatt--Weisskopf barrier accounts for the finite range of the
+$\rho\to\pi\pi$ decay and is the more complete choice; vpK's bare Jackson is the common simpler one --- neither
+is wrong. Points to settle for a joint sample: (i) adopt one running-width form in both (add the barrier to
+vpK, or a \texttt{BW\_BARRIER=0} knob in vecmeson-gen); (ii) align the upper mass window ($M_0+5\Gamma$ vs
+$M_0+8\Gamma$); (iii) the physics impact is small --- once the flux is matched, the $\sim0.03$ GeV shift in
+$\langle m\rangle$ barely moves $W$ or $t$.
+
+% ---------------- 9 ----------------
+\section{Next}
+All three matched conditions --- flux (\S7), amplitude-by-amplitude angular structure (\S8), and the decay
+frame (\S9) --- now agree. Remaining, optional:
+\begin{itemize}[leftmargin=1.2em,itemsep=3pt]
+\item \textbf{Full interfering model.} All amplitudes on together (vpK's default $u$-matrix), exercising the
+L-T/T-T interference terms and the $\Phi$-dependence, with the $t$-sign flip.
+\item \textbf{Residual kinematics.} Settle the $m_V$ lineshape (\S10) and apply vpK's $|t|\le5.5$ cut.
+\item \textbf{Statistics.} Scale each config to $\gtrsim1$M events for the final canvases.
+\end{itemize}
+
+\vspace{0.5em}
+{\color{rulec}\rule{\linewidth}{0.6pt}}\\[0.3em]
+{\footnotesize All seven observables rebuilt from Lund four-vectors with one routine (\texttt{compare.py}).
+Sample: pure-$T_{00}$, $\rho^0$, $E=10.6$~GeV, matched windows; vpK 60k, vecmeson-gen 55k events. Location:
+\texttt{/w/ceph24/\ldots/Softwares/Test\_vecMeson\_gen} on ifarm.}
+
+\end{document}
