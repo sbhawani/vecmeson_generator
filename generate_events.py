@@ -48,14 +48,19 @@ MESONS = {  # vector-meson pole mass, width, decay-hadron mass, PDG ids, labels
 BW_MASS = os.environ.get("BW", "1") not in ("0", "", "false", "False")   # sample the Breit-Wigner line shape
 # How the Q^2/x/t event YIELD is weighted (kinematics are sampled FLAT, so this alone sets the shape).
 # NOTE: the yield weight sets only the KINEMATIC density; it does NOT enter the decay-angle distribution
-# (the SDMEs/amplitudes) -- the flux cancels there. So 'amp' is fine for extraction / acceptance MC.
-#   amp  : W(Omega) only  -> Q^2/t dependence purely from your amplitudes                       (default)
+# (the SDMEs/amplitudes) -- the flux cancels there. So 'amp' is equally valid for extraction/acceptance MC;
+# the default is 'flux' only so that a bare run yields a PHYSICAL Q^2 spectrum.
 #   flux : x the Diehl virtual-photon flux (y^2/(1-eps))(1-xB)/xB/Q^2 -- the CORRECT flux for the
-#          Diehl W(Omega) used here (arXiv:0704.1565); use this for realistic yields
-#   vpk  : x vpK's dsigma_3fold (= Diehl flux x (1+eps)) -- exact vpK cross-check ONLY, not physical
+#          Diehl W(Omega) used here (arXiv:0704.1565)                                          (default)
+#   amp  : W(Omega) only  -> Q^2/t dependence purely from your amplitudes, NO flux. Fine for extraction
+#          (the flux cancels in the angular fit), but the Q^2 spectrum is much harder than physical
+#          (<Q^2> ~ 2.9 vs ~ 2.0 GeV^2) -- do not use it for yields or Q^2 plots.
+#   vpk  : x vpK's dsigma_3fold (= Diehl flux x (1+eps)) -- exact vpK cross-check ONLY, not physical:
+#          vpK's placeholder dsigmaT=dsigmaL=1 makes the (1+eps) a stand-in for the T/L that our
+#          W(Omega) already carries, so this DOUBLE-COUNTS T/L. Use it only to reproduce the vpK study.
 #   hand : x the Hand flux ~ (1-y)K/(Q^2(1-eps)) -- DEPRECATED, inconsistent with the Diehl W
 #   toy  : x a smooth legacy toy cross section
-WEIGHT = os.environ.get("WEIGHT", "amp")
+WEIGHT = os.environ.get("WEIGHT", "flux")
 WEIGHTED = os.environ.get("WEIGHTED", "0") not in ("0", "", "false", "False")  # physical-yield (weighted) events
 # Header columns beyond the 10 standard Lund fields:
 #   LUND_KIN=1   -> +8 kinematics (Q2,|t|,xB,W,cos_theta,phi,Phi,eps), blind-safe (reconstructable).

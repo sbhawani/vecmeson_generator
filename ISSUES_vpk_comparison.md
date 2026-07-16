@@ -67,9 +67,68 @@ H.A. Arguably vecmeson-gen is the more complete parametrisation; for a matched r
 - **Sampling.** vecmeson-gen flat in (Q²,x_B,t′); vpK log-Q², uniform x_B, uniform cosθ*_CM. Accept–reject removes
   the sampling bias only if the weight carries the correct Jacobians (see #7b).
 
+## Default weight (post-study follow-up)
+
+The study ran under an explicit **`WEIGHT=vpk`** (see the `.tex`, #4) — a *matched-validation* setting, not a
+physics default: `vpk` = Diehl flux x (1+eps), and that (1+eps) is vpK's stand-in for its placeholder
+`dsigmaT=dsigmaL=1`, which our `W(Omega)` already carries → it **double-counts T/L**.
+
+Meanwhile the shipped default was **`WEIGHT=amp`** (no flux at all), so a bare `python generate_events.py`
+gave an unphysically hard Q²: **⟨Q²⟩ = 2.92 vs ~1.97 GeV²**, with **22% of events above Q²=4 vs ~5%**
+(E=10.6, Q²∈[1,6], 400k thrown, accept-reject). That is what a naive run — i.e. H.A.'s — produced, and why
+the Q² concern outlived commit `44b7248` ("fix Harut's concern"): that commit removed a spurious toy 1/Q⁴
+that made Q² fall *too fast*, and overshot into a default with no flux, so Q² didn't fall *enough*.
+Same complaint, opposite sign. `amp` itself is not a bug (the flux cancels in the angular fit, so it stays
+valid for extraction/acceptance MC) — it was only wrong as the **default**.
+
+**→ The default is now `WEIGHT=flux`** (Diehl), the flux our `W(Omega)` is normalized against.
+`vpk` remains available and unchanged: re-running the study under `WEIGHT=vpk` reproduces it bit-for-bit
+(⟨Q²⟩ = 1.9174440112201847, identical histogram), so nothing in this document's conclusions moves.
+
+## 🔴 OPEN BUG: sigma_T drops the double-flip amplitude (T1m1)
+
+**This retracts the "all seven observables agree for the full natural-parity set" claim below.**
+T1m1's **kinematics never agreed** — it is visible in this study's own `out_hel` data and was misread as noise.
+
+`diehl_w.py:33-34`:
+```python
+def sigma_T(u): return 2*u["u11_pp"] + u["u00_pp"]   # = 2|T11|^2 + |T01|^2   WRONG
+def sigma_L(u): return 2*u["u11_00"] + u["u00_00"]   # = 2|T10|^2 + |T00|^2   right
+```
+Both sum over meson helicity λV = ±1. For a **longitudinal** photon parity gives T_{-1,0} = −T10, so
+|T_{-1,0}|² = |T10|² and the factor 2 is exact → `sigma_L` is correct. For a **transverse** photon parity gives
+T_{-1,+1} = **T1m1**, a *different amplitude* → `2*u11_pp` should be `u11_pp + umm_pp` with
+umm_pp = u^{-1-1}_{++} = |T1m1|², which **is not in the 28-element basis at all**. The working σ_L form was
+generalized to σ_T where the parity relation does not hold.
+
+Consequences (`W = (sigma_T + eps*sigma_L)*A(theta) + sum g_k f_k`, `diehl_w.py:111` — σ_T feeds the weight):
+- pure T1m1 → **σ_T = σ_L = 0**, the leading A(θ) term vanishes entirely; yield carried only by the g_k f_k
+  residue with its different ε structure → T1m1's kinematics come out **longitudinal-like**.
+  ⟨W⟩ = 2.735 (next to T00's 2.738) where vpK correctly puts it at 2.990 (next to T11's 2.992).
+- pure T11 → σ_T = 2 (should be 1). Harmless for a *pure* amplitude (σ_L = 0 ⇒ σ_T is ε-independent ⇒ an
+  overall constant that cancels), but in a **mixed** set it mis-weights T11 against the others and corrupts
+  σ_T, R = σ_L/σ_T, and the SDMEs. The default `user_amplitudes` (T1m1 = 0.10) is mixed → **normal runs are
+  affected**, just less visibly than the sweep.
+
+vpK is the independent reference and gets it right — `w_kernels.hpp` TT kernel writes **both** terms:
+`0.5*( real(U(u,'+','+','+','+')) + real(U(u,'-','-','+','+')) + ... )`.
+
+**Prototype fix verified** (`sigma_T = u11_pp + umm_pp + u00_pp`, basis 28→29): T1m1 ⟨W⟩ 2.735 → **2.891**,
+landing on T11's 2.891; W χ²/ndf **186 → 20**, Q² χ²/ndf **39 → 4.4**; T11 unchanged, exactly as predicted.
+Not yet applied — `28` is hardcoded (`amplitudes.py:125`, `:174`) and the change touches the LUND truth
+columns, `u_to_r`/SDMEs, and anything assuming a 28-vector. The σ_T normalization convention needs ratifying.
+
+**Residual after the fix:** a *uniform* ⟨W⟩ offset of ~0.07–0.10 on every amplitude (ours below vpK),
+χ²/ndf(W) ≈ 20 — amplitude-independent, so most likely the |t|≤5.5 cut + acceptance-cut differences below,
+not a physics bug. Chase separately.
+
 ## Status / next
-**All matched conditions now agree.** Flux (#4, `WEIGHT=vpk`) + `tprime < TMAX` (#7a) → Q², |t|, x_B, W, y, ε
-match; the full amplitude sweep {T00,T01,T11,T10,T1m1} agrees one-by-one; and the decay **frame** (#3) is
-reconciled by patching vpK's `produce__3` to the CM axis — so all seven observables now overlap for the whole
-natural-parity set (PDF §9). Only the m_V **lineshape** (#8, minor, Blatt–Weisskopf) remains, plus the |t|≤5.5
-cut. Optional next: the full interfering model (all amplitudes on, the Φ-dependence) and high statistics.
+Flux (#4, `WEIGHT=vpk`) + `tprime < TMAX` (#7a) → Q², |t|, x_B, W, y, ε match, and the decay **frame** (#3) is
+reconciled by patching vpK's `produce__3` to the CM axis — the **angular** observables agree for every
+amplitude (χ²/ndf ≈ 1 on cosθ/φ/Φ across the whole set), so the frame result is solid.
+**But the kinematics do NOT agree for T1m1** — see the open σ_T bug above; the earlier claim that the sweep
+"agrees one-by-one" was wrong. Open: (1) **σ_T / T1m1** (physics, highest priority); (2) the uniform ~0.1
+⟨W⟩ offset (likely cuts); (3) m_V **lineshape** (#8, minor, Blatt–Weisskopf); (4) the |t|≤5.5 cut.
+Also note the generator carries **no nucleon-helicity structure**: u = F F† is rank-1, while the physical
+u = Σ_{λ,σ} T T* over nucleon helicities is rank ≤ 4, and there are no l/s/n (polarised-target) structure
+functions — vpK has `UL`/`LL` kernels, we do not. Fine for an unpolarised target; a limit worth knowing.

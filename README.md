@@ -31,13 +31,15 @@ the only argv token read is the literal `--multi-energy`, equivalent to `MULTI=1
 
 ```bash
 python generate_events.py                                          # phi, 10.6 GeV, 20k events, default windows
+                                                                   # (WEIGHT=flux -> physical Q^2 spectrum)
 
 # event count + kinematic windows (the "nevents / Q2 / xB" controls)
 N=50000 Q2MIN=1.5 Q2MAX=3.0 XBMIN=0.12 XBMAX=0.28 python generate_events.py
 
 MESON=rho0 N=50000 E=7.546 python generate_events.py               # rho0 at a single beam energy
 MESON=rho0 BEAM=mu E=170 N=100000 python generate_events.py        # muon beam, COMPASS-like 170 GeV
-MESON=rho0 MULTI=1 WEIGHT=flux N=200000 python generate_events.py  # realistic multi-beam (Rosenbluth)
+MESON=rho0 MULTI=1 N=200000 python generate_events.py              # realistic multi-beam (Rosenbluth)
+MESON=rho0 WEIGHT=vpk N=60000 python generate_events.py            # reproduce the vpK cross-check study
 ```
 
 The count and windows take effect exactly as set: e.g. `N=300 Q2MIN=1.5 Q2MAX=3.0 XBMIN=0.12
@@ -57,7 +59,7 @@ Options are environment variables:
 | `LUMI`   | Multi-energy relative beam luminosities, e.g. `LUMI=2,1,1` | equal |
 | `POL`    | Beam polarization degree (0 = unpolarised); each event's helicity sign is written to the Lund header | `0` |
 | `BW`     | Sample the meson mass from a relativistic Breit-Wigner (1) or use the fixed pole mass (0) | `1` |
-| `WEIGHT` | Yield weighting **shape**: `amp` \| `flux` \| `toy` (see below) | `amp` |
+| `WEIGHT` | Yield weighting **shape**: `flux` \| `amp` \| `vpk` \| `hand` \| `toy` (see below) | `flux` |
 | `WEIGHTED` | `0` = unweighted accept-reject events (like real data); `1` = keep all flat events, physics weight in Lund field 10 | `0` |
 | `Q2MIN` `Q2MAX` | Q^2 sampling window [GeV^2] | `1.0` `6.0` |
 | `XBMIN` `XBMAX` | x_B sampling window | `0.08` `0.5` |
@@ -73,11 +75,19 @@ Options are environment variables:
 
 **`WEIGHT` = the yield *shape*** (what goes into the per-event physics weight `wphys`):
 
-- `amp`  : `wphys = W(Omega; amplitudes)` -- the Q^2/t/angle dependence comes purely from your
-  amplitudes (`sigma_T + eps*sigma_L` and the full angular intensity), no extra falloff.
-- `flux` : `wphys = Gamma(Q^2,x,y) * W` -- also folds in the physical virtual-photon flux. **Use this
-  for realistic per-beam yields / a Rosenbluth L/T separation**, since the flux carries the Q^2 and
-  epsilon dependence of the rate.
+- `flux` **(default)** : `wphys = Gamma_Diehl(Q^2,x,y) * W`, with the Diehl virtual-photon flux
+  `Gamma ~ (y^2/(1-eps))*(1-xB)/xB*(1/Q^2)` ([arXiv:0704.1565](https://arxiv.org/abs/0704.1565)) --
+  **the flux the Diehl `W(Omega)` used here is normalized against**, so this is the correct one for
+  physics: realistic Q^2/eps spectra, per-beam yields, and a Rosenbluth L/T separation.
+- `amp`  : `wphys = W(Omega; amplitudes)` -- Q^2/t/angle purely from your amplitudes, **no flux at
+  all**. The flux cancels in the angular fit, so this is equally valid for extraction / acceptance MC,
+  but its Q^2 spectrum is far harder than physical (`<Q^2> ~ 2.9` vs `~ 2.0 GeV^2`, ~22% of events
+  above `Q^2 = 4` vs ~5%). **Never use it for yields or Q^2 plots.**
+- `vpk`  : `wphys = Gamma_Diehl * (1+eps) * W` -- reproduces vpK's `dsigma_3fold` bit-for-bit, for the
+  vpK cross-check **only**. vpK's placeholder `dsigmaT = dsigmaL = 1` makes its `(1+eps)` a stand-in for
+  the T/L that our `W(Omega)` already carries, so this **double-counts T/L** and is *not* physical.
+  A matched validation just needs the *same* flux on both sides -- see `ISSUES_vpk_comparison.md`.
+- `hand` : Hand flux `~ (1-y)*K/(Q^2(1-eps))` -- **deprecated**, inconsistent with the Diehl `W`.
 - `toy`  : legacy smooth cross-section shape x `W`.
 
 **`WEIGHTED` = how events are *kept*:**
@@ -98,7 +108,7 @@ multi-beam normalization (the epsilon lever arm for the longitudinal/transverse 
 physical -- **not** a fixed count per beam. `LUMI=L1,L2,L3` sets the relative luminosities (default
 equal = equal running time). Each beam is written to `LUND_files/<E>GeV/`, and `luminosity.txt`
 records `beam_energy  relative_luminosity  accepted_events` for the data-analysis normalization
-`N_bin(E) / L_E`. Use `WEIGHT=flux` so the yields include the flux.
+`N_bin(E) / L_E`. This needs `WEIGHT=flux` (the default) so the yields include the flux.
 
 ## Lund file structure
 
