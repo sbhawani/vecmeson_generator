@@ -26,11 +26,30 @@ UNAMES = ["u00_pp","u00_00","Re_u0p_pp_minus_um0_pp","Re_u0p_00","Re_ump_pp","Re
  "u11_pp","u11_00","Re_upp_mp","u00_mp","Re_u0p_mp","Re_up0_mp","ump_mp","upm_mp",
  "Re_upp_0p_plus_umm_0p","Re_u00_0p","Re_u0p_0p_minus_um0_0p","Re_u0m_0p_minus_up0_0p",
  "Re_ump_0p","Re_upm_0p","Im_u0p_pp_minus_um0_pp","Im_ump_pp","Im_upp_0p_plus_umm_0p",
- "Im_u00_0p","Im_u0p_0p_minus_um0_0p","Im_u0m_0p_minus_up0_0p","Im_ump_0p","Im_upm_0p"]
+ "Im_u00_0p","Im_u0p_0p_minus_um0_0p","Im_u0m_0p_minus_up0_0p","Im_ump_0p","Im_upm_0p",
+# --- appended (indices 28+) so the original 0..27 ordering stays stable ---
+# u^{-1-1}_{++} = |T1m1 -+ U1m1|^2, needed by sigma_T: the lambda_V=-1 partner at a TRANSVERSE
+# photon is the DOUBLE-FLIP amplitude, not T11.  Absent from the original 28.  See sigma_T below.
+"umm_pp"]
 S2 = np.sqrt(2.0)
 
-# N_T, N_L ~ sigma_T, sigma_L from the u structure functions  [DS Eq. (10)].
-def sigma_T(u): return 2*u["u11_pp"] + u["u00_pp"]
+# sigma_T, sigma_L ~ N_T, N_L  [Diehl JHEP09(2007)064 eq. (3.5)]:
+#     N_T = 1/2 sum_{lambda,nu,sigma} |T^{nu sigma}_{+ lambda}|^2      (photon helicity mu = +1)
+#     N_L = 1/2 sum_{lambda,nu,sigma} |T^{nu sigma}_{0 lambda}|^2      (photon helicity mu =  0)
+# i.e. a sum over the MESON helicity nu at FIXED photon helicity (no averaging over mu = +-1;
+# the 1/2 averages the incoming-proton helicity lambda).  With eq. (3.4)/(3.7) this is
+#     sigma_T ~ sum_nu u^{nu nu}_{++}  = u^{++}_{++} + u^{00}_{++} + u^{--}_{++}
+#     sigma_L ~ sum_nu u^{nu nu}_{00}  = u^{++}_{00} + u^{00}_{00} + u^{--}_{00}
+#
+# FIXED(vpk-comp): sigma_T was `2*u11_pp + u00_pp`, i.e. it used 2*u^{++}_{++} in place of
+# u^{++}_{++} + u^{--}_{++}.  That shortcut is exact for sigma_L -- parity gives T_{-1,0} = -T10,
+# so u^{--}_{00} = |T10|^2 = u^{++}_{00} -- but NOT for sigma_T, where parity gives
+# T_{-1,+1} = T1m1, a DIFFERENT amplitude.  The old form therefore double-counted T11 and dropped
+# T1m1 entirely (pure T1m1 -> sigma_T = 0, its leading term vanished and its kinematics came out
+# longitudinal-like).  With the default amplitudes sigma_T was ~1.8x too large and R = sigma_L/sigma_T
+# ~1.8x too small.  vpK gets this right: its TT kernel sums both terms explicitly,
+# 0.5*( Re u^{++}_{++} + Re u^{--}_{++} + ... )  [w_kernels.hpp].
+def sigma_T(u): return u["u11_pp"] + u["umm_pp"] + u["u00_pp"]
 def sigma_L(u): return 2*u["u11_00"] + u["u00_00"]
 def sigma_sum(u, eps): return sigma_T(u) + eps*sigma_L(u)   # N_T + eps N_L
 

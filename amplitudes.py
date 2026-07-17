@@ -122,7 +122,7 @@ def build_T_batch(A):
 
 def amp_to_u28_batch(A):
     T = build_T_batch(A); N = next(iter(T.values())).shape[0]
-    out = np.zeros((N, 28))
+    out = np.zeros((N, len(UNAMES)))
     for j, (part, terms) in enumerate(FIELD_RECIPE):
         v = np.zeros(N, dtype=complex)
         for sgn, mu, nu, mup, nup in terms:
@@ -139,7 +139,13 @@ def amp_sigmas(a):
 
 # ============================ SELF-TEST =====================================
 if __name__ == "__main__":
-    from diehl_w import u_to_r
+    # NOTE: diehl_w.u_to_r does not exist (it never has) -- this self-test has been dead code,
+    # which is part of why the sigma_T bug below survived.  Degrade gracefully so the rest runs.
+    try:
+        from diehl_w import u_to_r
+    except ImportError:
+        u_to_r = None
+        print("[warn] diehl_w.u_to_r missing -> skipping the SDME (r^alpha) cross-check")
     rng = np.random.default_rng(0)
     print("=== FULL amplitude set: self-tests ===")
 
@@ -147,13 +153,17 @@ if __name__ == "__main__":
     a = {n: 0.0 for n in AMP_NAMES}
     a["T11"] = 0.8; a["T00_re"] = 1.3
     sT, sL, R = amp_sigmas(a)
-    print(f"SCHC (U=0): sigma_T={sT:.4f} (2|T11|^2={2*0.64:.4f}), "
+    # sigma_T = |T11|^2 + |T01|^2 + |T1m1|^2  -> |T11|^2 under SCHC (NOT 2|T11|^2: the lambda_V=-1
+    # partner at a transverse photon is T1m1, not T11 -- see sigma_T in diehl_w.py).
+    print(f"SCHC (U=0): sigma_T={sT:.4f} (|T11|^2={0.64:.4f}), "
           f"sigma_L={sL:.4f} (|T00|^2={1.69:.4f}), R={R:.4f}")
-    for eps in (0.4, 0.7):
-        r = u_to_r(dict(zip(UNAMES, amp_to_u28(a))), eps)
-        schc = eps * R / (1 + eps * R)
-        print(f"  eps={eps}: r04_00={r['r00_04']:+.5f}  SCHC={schc:+.5f}  "
-              f"match={np.isclose(r['r00_04'], schc)}")
+    assert np.isclose(sT, 0.64) and np.isclose(sL, 1.69), "SCHC sigma_T/sigma_L regression"
+    if u_to_r is not None:
+        for eps in (0.4, 0.7):
+            r = u_to_r(dict(zip(UNAMES, amp_to_u28(a))), eps)
+            schc = eps * R / (1 + eps * R)
+            print(f"  eps={eps}: r04_00={r['r00_04']:+.5f}  SCHC={schc:+.5f}  "
+                  f"match={np.isclose(r['r00_04'], schc)}")
 
     # (2) positivity with unnatural amplitudes on
     ok = True
@@ -171,7 +181,7 @@ if __name__ == "__main__":
 
     # (4) IDENTIFIABILITY: rank of d(u28)/d(params) -> settles 16 vs 17
     def jac(av, h=1e-6):
-        J = np.zeros((28, NAMP))
+        J = np.zeros((len(UNAMES), NAMP))
         for k in range(NAMP):
             ap = av.copy(); am = av.copy(); ap[k] += h; am[k] -= h
             J[:, k] = (amp_to_u28(ap) - amp_to_u28(am)) / (2 * h)
