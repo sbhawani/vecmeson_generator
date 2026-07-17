@@ -30,7 +30,10 @@ UNAMES = ["u00_pp","u00_00","Re_u0p_pp_minus_um0_pp","Re_u0p_00","Re_ump_pp","Re
 # --- appended (indices 28+) so the original 0..27 ordering stays stable ---
 # u^{-1-1}_{++} = |T1m1 -+ U1m1|^2, needed by sigma_T: the lambda_V=-1 partner at a TRANSVERSE
 # photon is the DOUBLE-FLIP amplitude, not T11.  Absent from the original 28.  See sigma_T below.
-"umm_pp"]
+"umm_pp",
+# u^{-1-1}_{00} = |-T10 + U10|^2, needed by sigma_L once UNNATURAL parity is on: the `2*u11_00`
+# shortcut silently assumes u^{--}_{00} = u^{++}_{00}, true only for U = 0.  See sigma_L below.
+"umm_00"]
 S2 = np.sqrt(2.0)
 
 # sigma_T, sigma_L ~ N_T, N_L  [Diehl JHEP09(2007)064 eq. (3.5)]:
@@ -49,8 +52,17 @@ S2 = np.sqrt(2.0)
 # longitudinal-like).  With the default amplitudes sigma_T was ~1.8x too large and R = sigma_L/sigma_T
 # ~1.8x too small.  vpK gets this right: its TT kernel sums both terms explicitly,
 # 0.5*( Re u^{++}_{++} + Re u^{--}_{++} + ... )  [w_kernels.hpp].
+# FIXED(vpk-comp): sigma_L was `2*u11_00 + u00_00`.  The factor 2 stands in for
+# u^{++}_{00} + u^{--}_{00} and is exact ONLY while U = 0: parity gives T_{-1,0} = -T10 + U10, so
+#     u^{--}_{00} = |T10 - U10|^2   vs   u^{++}_{00} = |T10 + U10|^2,
+# which differ once unnatural parity is on.  Doubling the first then injects a spurious
+# 4*Re(T10 conj(U10)) -- a natural/unnatural INTERFERENCE term that is forbidden for an
+# unpolarised target (Diehl eq. (5.3): u carries |N|^2 + |U|^2 only; the N-U interference lives
+# in l and s, the POLARISED-target structure functions).  Summing both elements makes it cancel:
+#     u^{++}_{00} + u^{--}_{00} = |T10+U10|^2 + |T10-U10|^2 = 2(|T10|^2 + |U10|^2).
+# Latent at U = 0 (the current default), wrong the moment unnatural parity is switched on.
 def sigma_T(u): return u["u11_pp"] + u["umm_pp"] + u["u00_pp"]
-def sigma_L(u): return 2*u["u11_00"] + u["u00_00"]
+def sigma_L(u): return u["u11_00"] + u["umm_00"] + u["u00_00"]
 def sigma_sum(u, eps): return sigma_T(u) + eps*sigma_L(u)   # N_T + eps N_L
 
 def u_combos(u, eps):
