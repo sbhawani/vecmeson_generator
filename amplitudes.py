@@ -7,10 +7,20 @@
 #
 #   Natural   (T):  T_{-mu,-nu} = +(-1)^{mu-nu} T_{mu,nu}   -> T11,T00,T01,T10,T1m1
 #   Unnatural (U):  U_{-mu,-nu} = -(-1)^{mu-nu} U_{mu,nu}   -> U11,U01,U10,U1m1 (U00=0)
-#   Full amplitude   F_{mu,nu} = T_{mu,nu} + U_{mu,nu}.
 #
-# Everything downstream (u = F F^dagger, sigma_T/L, SDMEs) flows through build_T,
-# so no other forward-model change is needed once build_T returns F.
+# The u structure functions are the INCOHERENT sum of the two parities
+# [Diehl JHEP09(2007)064 eq. (5.3)]:
+#
+#   u^{nu nu'}_{mu mu'} ~ sum_sigma [ T^{nu sigma}_{mu +} (T^{nu' sigma}_{mu' +})*
+#                                   + U^{nu sigma}_{mu +} (U^{nu' sigma}_{mu' +})* ]
+#
+# i.e. |T|^2 + |U|^2 with NO natural/unnatural cross term.  For an unpolarised target the
+# N-U interference is not merely small -- it is absent: it lives entirely in l and s, the
+# POLARISED-target structure functions (eq. (5.3)), which this generator does not carry.
+#
+# NOT u = F F^dagger with F = T + U.  That coherent form manufactures exactly the interference
+# eq. (5.3) forbids; see build_u_terms below.  (build_T is kept: F = T + U is still the right
+# object for the parity bookkeeping, and at U = 0 the two constructions coincide.)
 # =============================================================================
 import os, sys
 import numpy as np
@@ -49,7 +59,10 @@ def _pack(a):
 
 
 def build_T(a):
-    """params -> {(mu,nu): complex} for the FULL amplitude F = T + U."""
+    """params -> {(mu,nu): complex} for the FULL amplitude F = T + U.
+
+    Kept for the parity bookkeeping and as the U=0 reference; the u structure functions are
+    NOT F F^dagger -- see build_NU / build_u_terms and Diehl eq. (5.3)."""
     T11, T00, T01, T10, T1m1, U11, U01, U10, U1m1 = _pack(a)
     return {
         (1, 1):  T11 + U11,   (0, 0):  T00,          (0, 1):  T01 + U01,
@@ -59,11 +72,32 @@ def build_T(a):
     }
 
 
-def _term(term, T):
+def build_NU(a):
+    """params -> (N, U) as separate {(mu,nu): complex} maps, each closed under its own parity
+    relation [Diehl eq. (5.2)]:  N_{-mu,-nu} = +(-1)^{mu-nu} N_{mu,nu},
+                                 U_{-mu,-nu} = -(-1)^{mu-nu} U_{mu,nu},  and U_{0,0} = 0."""
+    T11, T00, T01, T10, T1m1, U11, U01, U10, U1m1 = _pack(a)
+    z = T11 * 0.0                                   # 0, shaped like the inputs (scalar or array)
+    N = {(1, 1):  T11,  (0, 0):  T00,  (0, 1):  T01,  (1, 0):  T10,  (1, -1): T1m1,
+         (-1, -1): T11,  (0, -1): -T01, (-1, 0): -T10, (-1, 1):  T1m1}
+    U = {(1, 1):  U11,  (0, 0):  z,    (0, 1):  U01,  (1, 0):  U10,  (1, -1): U1m1,
+         (-1, -1): -U11, (0, -1):  U01, (-1, 0):  U10, (-1, 1): -U1m1}
+    return N, U
+
+
+def _term(term, NU):
+    """u^{nu nu'}_{mu mu'} = N_{nu mu} conj(N_{nu' mu'}) + U_{nu mu} conj(U_{nu' mu'})  [eq. (5.3)].
+
+    NU is the (N, U) pair from build_NU.  A bare F-map is also accepted (F F^dagger), which is
+    only correct at U = 0 -- kept so build_T-based callers still work."""
     mes, pho = term[1:].split("_")
     mu, mup = HMAP[mes[0]], HMAP[mes[1]]
     nu, nup = HMAP[pho[0]], HMAP[pho[1]]
-    return T[(mu, nu)] * np.conj(T[(mup, nup)])
+    if isinstance(NU, tuple):
+        N, U = NU
+        return (N[(mu, nu)] * np.conj(N[(mup, nup)])
+                + U[(mu, nu)] * np.conj(U[(mup, nup)]))
+    return NU[(mu, nu)] * np.conj(NU[(mup, nup)])
 
 
 def field_value(name, T):
@@ -80,8 +114,7 @@ def field_value(name, T):
 
 
 def amp_to_u28(a):
-    T = build_T(a)
-    return np.array([field_value(n, T) for n in UNAMES], dtype="float64")
+    return np.array([field_value(n, build_NU(a)) for n in UNAMES], dtype="float64")
 
 
 # ---- vectorised ------------------------------------------------------------
@@ -104,7 +137,7 @@ def _parse_field(name):
 FIELD_RECIPE = [_parse_field(n) for n in UNAMES]
 
 
-def build_T_batch(A):
+def _unpack_batch(A):
     A = np.atleast_2d(A)
     T11  = A[:, 0] + 0j
     T00  = A[:, 1] + 1j * A[:, 2];   T01  = A[:, 3] + 1j * A[:, 4]
@@ -112,6 +145,12 @@ def build_T_batch(A):
     U11  = A[:, 9] + 0j
     U01  = A[:, 10] + 1j * A[:, 11]; U10  = A[:, 12] + 1j * A[:, 13]
     U1m1 = A[:, 14] + 1j * A[:, 15]
+    return T11, T00, T01, T10, T1m1, U11, U01, U10, U1m1
+
+
+def build_T_batch(A):
+    """Vectorised F = T + U (see build_T)."""
+    T11, T00, T01, T10, T1m1, U11, U01, U10, U1m1 = _unpack_batch(A)
     return {
         (1, 1):  T11 + U11,   (0, 0):  T00,          (0, 1):  T01 + U01,
         (1, 0):  T10 + U10,   (1, -1): T1m1 + U1m1,
@@ -120,13 +159,26 @@ def build_T_batch(A):
     }
 
 
+def build_NU_batch(A):
+    """Vectorised build_NU: separate N and U maps, each under its own parity relation (5.2)."""
+    T11, T00, T01, T10, T1m1, U11, U01, U10, U1m1 = _unpack_batch(A)
+    z = np.zeros_like(T11)
+    N = {(1, 1):  T11,  (0, 0):  T00,  (0, 1):  T01,  (1, 0):  T10,  (1, -1): T1m1,
+         (-1, -1): T11,  (0, -1): -T01, (-1, 0): -T10, (-1, 1):  T1m1}
+    U = {(1, 1):  U11,  (0, 0):  z,    (0, 1):  U01,  (1, 0):  U10,  (1, -1): U1m1,
+         (-1, -1): -U11, (0, -1):  U01, (-1, 0):  U10, (-1, 1): -U1m1}
+    return N, U
+
+
 def amp_to_u28_batch(A):
-    T = build_T_batch(A); N = next(iter(T.values())).shape[0]
-    out = np.zeros((N, len(UNAMES)))
+    """u = N N^dagger + U U^dagger, elementwise over a batch of amplitude vectors [eq. (5.3)]."""
+    Nm, Um = build_NU_batch(A); n = next(iter(Nm.values())).shape[0]
+    out = np.zeros((n, len(UNAMES)))
     for j, (part, terms) in enumerate(FIELD_RECIPE):
-        v = np.zeros(N, dtype=complex)
+        v = np.zeros(n, dtype=complex)
         for sgn, mu, nu, mup, nup in terms:
-            v += sgn * T[(mu, nu)] * np.conj(T[(mup, nup)])
+            v += sgn * (Nm[(mu, nu)] * np.conj(Nm[(mup, nup)])
+                        + Um[(mu, nu)] * np.conj(Um[(mup, nup)]))
         out[:, j] = v.real if part == "re" else v.imag
     return out
 
