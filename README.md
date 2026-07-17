@@ -70,7 +70,7 @@ Options are environment variables:
 | `Q2MIN` `Q2MAX` | Q^2 sampling window [GeV^2] | `1.0` `6.0` |
 | `XBMIN` `XBMAX` | x_B sampling window | `0.08` `0.5` |
 | `TMAX`   | Flat t' upper bound [GeV^2] | `4.0` |
-| `AMP_FILE` | Path to a file defining `user_amplitudes(Q2,t)`, overrides the built-in set | (none) |
+| `AMP_FILE` | Path to a file defining `user_amplitudes(Q2, xB, t)` (legacy `(Q2, t)` still accepted), overrides the built-in set | (none) |
 | `LUND_KIN` | Append 8 kinematic columns to the Lund header (blind-safe) | `0` |
 | `LUND_TRUTH` | Also append the 16 truth amplitude columns (reveals the truth) | `1` |
 
@@ -170,19 +170,27 @@ z-axis along the meson momentum in the gamma*-p CM):
 
 ## Defining your amplitudes
 
-Everything physical lives in `user_amplitudes(Q2, t)` (or an external `AMP_FILE`):
+Everything physical lives in `user_amplitudes(Q2, xB, t)` (or an external `AMP_FILE`). Each amplitude
+may depend on `Q2`, `xB` **and** `t` — each carries its own per-amplitude `x_B` factor (seeded with
+`xB**2*(1-xB)`), so `T` and `U` can be given genuinely different `x_B` behaviour:
 
 ```python
-def user_amplitudes(Q2, t):          # Q2, t=|t| arrive as NumPy arrays; any closed form works
+def user_amplitudes(Q2, xB, t):      # Q2, xB, t=|t| arrive as NumPy arrays; any closed form works
     Q = np.sqrt(Q2)
-    T11  = (1.00/Q) * np.exp(-0.65*t)                       # real, transverse (dominant)
-    T00  = 1.73     * np.exp(-0.55*t) + 0j                  # longitudinal
-    T01  = (0.45/Q) * np.exp(-0.60*t) * np.exp(+1j*0.7)     # single-flip (complex)
-    T10  = (0.15/Q) * np.exp(-0.60*t) + 0j
-    T1m1 = 0.10     * np.exp(-0.60*t) * np.exp(-1j*0.4)     # double-flip (complex)
-    U11  = 0.0; U01 = 0.0+0j; U10 = 0.0+0j; U1m1 = 0.0+0j   # unnatural parity (0 for a phi-like meson)
+    fT11 = xB**2*(1-xB); fT00 = xB**2*(1-xB); ...            # per-amplitude x_B factor (edit each freely)
+    T11  = (1.00/Q) * np.exp(-0.65*t) * fT11                 # real, transverse (dominant)
+    T00  = 1.73     * np.exp(-0.55*t) * fT00 + 0j            # longitudinal
+    T01  = (0.45/Q) * np.exp(-0.60*t) * fT01 * np.exp(+1j*0.7)   # single-flip (complex)
+    T10  = (0.15/Q) * np.exp(-0.60*t) * fT10 + 0j
+    T1m1 = 0.10     * np.exp(-0.60*t) * fT1m1 * np.exp(-1j*0.4)  # double-flip (complex)
+    U11  = 0.0; U01 = 0.0+0j; U10 = 0.0+0j; U1m1 = 0.0+0j    # unnatural parity (0 for a phi-like meson)
     return T11, T00, T01, T10, T1m1, U11, U01, U10, U1m1
 ```
+
+A **common** `x_B` factor (same on every amplitude) cancels out of `R = sigma_L/sigma_T` and the angular
+distribution — it only reshapes the overall yield vs `x_B`. Give the amplitudes **different** `x_B` forms
+to make `R` and the SDMEs vary with `x_B`. A legacy `user_amplitudes(Q2, t)` `AMP_FILE` (no `x_B`) is
+still accepted and is called with `(Q2, t)` automatically.
 
 ### Conventions
 

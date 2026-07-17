@@ -28,7 +28,7 @@ _OPTIONS = {  # name -> one-line help, for --help
     "Q2MIN": "Q^2 lower [GeV^2]", "Q2MAX": "Q^2 upper [GeV^2]", "XBMIN": "x_B lower",
     "XBMAX": "x_B upper", "TMAX": "flat t' upper bound [GeV^2]", "POL": "beam helicity magnitude",
     "BW": "sample Breit-Wigner lineshape: 1 | 0", "CHUNK": "events per Lund file",
-    "AMP_FILE": "path to a file defining user_amplitudes(Q2,t)", "SEED": "random seed",
+    "AMP_FILE": "path to a file defining user_amplitudes(Q2, xB, t)", "SEED": "random seed",
     "LUND_KIN": "append 8 kinematic columns (blind-safe): 1 | 0",
     "LUND_TRUTH": "append 16 truth-amplitude columns: 1 | 0",
     "MULTI": "multi-energy mode: 1 | 0 (or pass --multi-energy)",
@@ -73,6 +73,7 @@ N_EVENTS    = int(os.environ.get("N", "20000"))        # total events generated
 EVENTS_PER_FILE = int(os.environ.get("CHUNK", "5000")) # events per Lund file (GEMC limit); N/CHUNK files
 BEAM_POL    = float(os.environ.get("POL", "0.0"))      # beam helicity magnitude (0 = unpolarised)
 Q2_REF      = 2.6                                       # Q^2 [GeV^2] for the amplitude-vs-|t| plot
+XB_REF      = 0.3                                       # x_B for the amplitude-vs-|t| plot (amps now x_B-dependent)
 SEED        = 1
 MULTI_ENERGIES = [6.535, 7.546, 10.6]                  # beams used in multi-energy mode
 MULTI       = ("--multi-energy" in sys.argv) or (os.environ.get("MULTI", "0") not in ("0", "", "false", "False"))
@@ -120,35 +121,60 @@ TMAX = float(os.environ.get("TMAX", "4.0"))
 #   U_{-mu,-nu} = -(-1)^{mu-nu} U_{mu nu}   (unnatural parity),  U_{00} = 0
 #   T11 and U11 are taken REAL (global-phase / residual-phase reference).
 #   Everything else may be complex.  Return 9 amplitudes (T then U).
-def user_amplitudes(Q2, t):
+def user_amplitudes(Q2, xB, t):
     Q = np.sqrt(Q2)
-    T11  = (1.00 / Q)         * np.exp(-0.65 * t)                     # real, transverse (dominant)
-    T00  = (1.73)             * np.exp(-0.55 * t) + 0j                # longitudinal
-    T01  = (0.45 / Q)         * np.exp(-0.60 * t) * np.exp(+1j * 0.7) # single-flip (SCHC-violating)
-    T10  = (0.15 / Q)         * np.exp(-0.60 * t) + 0j                # single-flip
-    T1m1 = (0.10)             * np.exp(-0.60 * t) * np.exp(-1j * 0.4) # double-flip
-    U11  = 0.0                                                        # real; unnatural parity
-    U01  = 0.0 + 0j
-    U10  = 0.0 + 0j
-    U1m1 = 0.0 + 0j
+    # --- x_B dependence ----------------------------------------------------------------
+    # Each amplitude carries its OWN x_B factor, exactly as it already carries its own Q and
+    # t dependence.  Edit each factor independently.  They are seeded with x_B^2 (1 - x_B) on
+    # every amplitude, which reproduces a single COMMON factor -- change any one so T and U
+    # differ in x_B.  NOTE: a common factor cancels out of R = sigma_L/sigma_T and out of the
+    # angular / SDME distributions (it only reshapes the overall yield vs x_B); giving the
+    # amplitudes DIFFERENT x_B forms is what makes R and the SDMEs genuinely x_B-dependent.
+    fT00  = xB**2 * (1 - xB)
+    fT11  = xB**2 * (1 - xB)
+    fT01  = xB**2 * (1 - xB)
+    fT10  = xB**2 * (1 - xB)
+    fT1m1 = xB**2 * (1 - xB)
+    fU11  = xB**2 * (1 - xB)
+    fU01  = xB**2 * (1 - xB)
+    fU10  = xB**2 * (1 - xB)
+    fU1m1 = xB**2 * (1 - xB)
+    # --- amplitudes (magnitude / Q / t as before, now x_B-weighted per amplitude) -------
+    T11  = (1.00 / Q) * np.exp(-0.65 * t) * fT11                      # real, transverse (dominant)
+    T00  = (1.73)     * np.exp(-0.55 * t) * fT00  + 0j                # longitudinal
+    T01  = (0.45 / Q) * np.exp(-0.60 * t) * fT01 * np.exp(+1j * 0.7)  # single-flip (SCHC-violating)
+    T10  = (0.15 / Q) * np.exp(-0.60 * t) * fT10  + 0j                # single-flip
+    T1m1 = (0.10)     * np.exp(-0.60 * t) * fT1m1 * np.exp(-1j * 0.4) # double-flip
+    U11  = 0.0 * fU11                                                 # real; unnatural parity
+    U01  = 0.0 * fU01 + 0j
+    U10  = 0.0 * fU10 + 0j
+    U1m1 = 0.0 * fU1m1 + 0j
     return T11, T00, T01, T10, T1m1, U11, U01, U10, U1m1
 # =============================================================================
-# Optional external amplitudes: AMP_FILE=/path/to/amps.py defining user_amplitudes(Q2,t)
+# Optional external amplitudes: AMP_FILE=/path/to/amps.py defining user_amplitudes(Q2, xB, t)
 # overrides the built-in set above (e.g. for independent blind-test samples), leaving the
-# default untouched.
+# default untouched.  A LEGACY file defining user_amplitudes(Q2, t) (no x_B) is still accepted --
+# it is called with (Q2, t) automatically, so old amp files keep working.
 _AMP_FILE = os.environ.get("AMP_FILE", "")
 if _AMP_FILE:
-    import importlib.util as _ilu
+    import importlib.util as _ilu, inspect as _inspect
     _spec = _ilu.spec_from_file_location("user_amps", _AMP_FILE)
     _mod = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_mod)
-    user_amplitudes = _mod.user_amplitudes
+    _ext = _mod.user_amplitudes
+    _nargs = len(_inspect.signature(_ext).parameters)
+    if _nargs >= 3:
+        user_amplitudes = _ext                                    # new-style (Q2, xB, t)
+    else:
+        user_amplitudes = lambda Q2, xB, t, _f=_ext: _f(Q2, t)    # legacy (Q2, t) amp file
+        print(f"[amplitudes] AMP_FILE user_amplitudes takes {_nargs} args -> called as (Q2, t), "
+              f"x_B ignored", flush=True)
     print(f"[amplitudes] external AMP_FILE={_AMP_FILE}", flush=True)
 
 
-def amps_to_params(Q2, t):
+def amps_to_params(Q2, xB, t):
     """User amplitudes -> the 16-real-parameter vector (T11,U11 real; U00=0)."""
-    T11, T00, T01, T10, T1m1, U11, U01, U10, U1m1 = user_amplitudes(Q2, t)
-    z = np.zeros(np.broadcast(np.asarray(Q2), np.asarray(t)).shape, float)
+    T11, T00, T01, T10, T1m1, U11, U01, U10, U1m1 = user_amplitudes(Q2, xB, t)
+    z = np.zeros(np.broadcast(np.asarray(Q2), np.asarray(xB), np.asarray(t)).shape, float)
     re = lambda x: np.real(x) + z; im = lambda x: np.imag(x) + z
     return np.stack([re(T11), re(T00), im(T00), re(T01), im(T01), re(T10), im(T10),
                      re(T1m1), im(T1m1), re(U11), re(U01), im(U01),
@@ -240,7 +266,7 @@ def throw(E, n_pool, rng, MV, GV, MH):
     kp, prot, Hp, Hm = _rotz(kp), _rotz(prot), _rotz(Hp), _rotz(Hm)
     hsign = rng.choice([-1.0, 1.0], N) if BEAM_POL > 0 else np.zeros(N)  # per-event beam helicity: +1/-1 (0 if unpol.)
     heli = BEAM_POL * hsign                                              # W uses (polarization degree) x (sign)
-    u = amp_to_u28_batch(amps_to_params(Q2, -t)); ud = {nm: u[:, i] for i, nm in enumerate(UNAMES)}
+    u = amp_to_u28_batch(amps_to_params(Q2, xB, -t)); ud = {nm: u[:, i] for i, nm in enumerate(UNAMES)}
     Wp = np.nan_to_num(np.clip(W_ang(CosTh, Phi, phipr, eps, heli, ud), 0, None))   # |amplitude|^2 x W_SW(Omega)
     if WEIGHT == "toy":
         wt = cross_section(Q2, xB, tprime)                      # legacy smooth toy shape
@@ -336,7 +362,7 @@ def write_lund(ev, meta, outdir, base):
     parts = [(LEP_PID, ev["e"], M_LEP), (2212, ev["p"], M),
              (meta["pid_hp"], ev["hp"], meta["MH"]), (meta["pid_hm"], ev["hm"], meta["MH"])]
     n = len(ev["Q2"]); nfiles = int(np.ceil(n / EVENTS_PER_FILE))
-    Apar = amps_to_params(ev["Q2"], ev["absT"]) if LUND_TRUTH else None    # truth amplitudes only if requested
+    Apar = amps_to_params(ev["Q2"], ev["xB"], ev["absT"]) if LUND_TRUTH else None    # truth amplitudes only if requested
     extra_cols = (LUND_KIN_COLS if LUND_KIN else []) + (LUND_AMP_COLS if LUND_TRUTH else [])
     with open(os.path.join(outdir, f"{base}_columns.txt"), "w") as fc:
         std = ["nparticles", "A", "Z", "target_pol", "beam_helicity", "beam_type", "E_beam",
@@ -420,8 +446,8 @@ AMP_LABELS = [r"$|T_{11}|$",
 
 def plot_amplitudes(meta, path):
     """Paper-style: every real and imaginary amplitude component + sigma_T, sigma_L, R vs |t|."""
-    t = np.linspace(0.05, 3.5, 80); Q2 = np.full_like(t, Q2_REF)
-    A = amps_to_params(Q2, t)                       # (80,16) real components
+    t = np.linspace(0.05, 3.5, 80); Q2 = np.full_like(t, Q2_REF); xB = np.full_like(t, XB_REF)
+    A = amps_to_params(Q2, xB, t)                   # (80,16) real components, at Q2_REF, XB_REF
     u = amp_to_u28_batch(A); ud = {nm: u[:, i] for i, nm in enumerate(UNAMES)}
     sT = sigma_T(ud); sL = sigma_L(ud); R = sL/np.clip(sT, 1e-12, None)
     fig, axs = plt.subplots(4, 5, figsize=(19, 13))
