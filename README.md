@@ -26,20 +26,26 @@ Python 3.8+ with NumPy and Matplotlib: `pip install -r requirements.txt`
 
 ## Running
 
-All inputs are **environment variables** set before the command (there are no `-`/`--` dash-flags;
-the only argv token read is the literal `--multi-energy`, equivalent to `MULTI=1`):
+All inputs are `KEY=VALUE` options. Give them **on the command line** (recommended) or, equivalently,
+as **environment variables** before the command. Command-line tokens win over the environment.
+Run `python generate_events.py --help` to list every option. (The only dash-flag is `--multi-energy`,
+equivalent to `MULTI=1`.)
 
 ```bash
 python generate_events.py                                          # phi, 10.6 GeV, 20k events, default windows
                                                                    # (WEIGHT=flux -> physical Q^2 spectrum)
 
-# event count + kinematic windows (the "nevents / Q2 / xB" controls)
-N=50000 Q2MIN=1.5 Q2MAX=3.0 XBMIN=0.12 XBMAX=0.28 python generate_events.py
+# rho0, event count + kinematic windows (the "nevents / Q2 / xB" controls)
+python generate_events.py MESON=rho0 N=60000 Q2MIN=1.0 Q2MAX=9.0 XBMIN=0.09 XBMAX=0.68 TMAX=5.5
 
-MESON=rho0 N=50000 E=7.546 python generate_events.py               # rho0 at a single beam energy
-MESON=rho0 BEAM=mu E=170 N=100000 python generate_events.py        # muon beam, COMPASS-like 170 GeV
-MESON=rho0 MULTI=1 N=200000 python generate_events.py              # realistic multi-beam (Rosenbluth)
-MESON=rho0 WEIGHT=vpk N=60000 python generate_events.py            # reproduce the vpK cross-check study
+python generate_events.py MESON=rho0 N=50000 E=7.546              # rho0 at a single beam energy
+python generate_events.py MESON=rho0 BEAM=mu E=170 N=100000       # muon beam, COMPASS-like 170 GeV
+python generate_events.py MESON=rho0 MULTI=1 N=200000            # realistic multi-beam (Rosenbluth)
+python generate_events.py MESON=rho0 WEIGHT=vpk N=60000           # reproduce the vpK cross-check study
+python generate_events.py --help                                  # list all options
+
+# the environment form still works and is identical:
+MESON=rho0 N=60000 python generate_events.py
 ```
 
 The count and windows take effect exactly as set: e.g. `N=300 Q2MIN=1.5 Q2MAX=3.0 XBMIN=0.12

@@ -10,10 +10,47 @@
 #   Kin_plots/amplitudes_<V>.pdf           |T|,|U|, sigma_T, sigma_L, R  vs |t|
 #   LUND_files/<V>_<E>gev.lund             Lund event file (e',p',h+,h-)
 #
-#   python generate_events.py                 # phi, defaults
-#   MESON=rho0 N=50000 python generate_events.py
+# Options are KEY=VALUE tokens, given EITHER on the command line OR as environment variables:
+#   python generate_events.py                                   # phi, defaults
+#   python generate_events.py MESON=rho0 N=50000                # <-- command-line form
+#   MESON=rho0 N=50000 python generate_events.py                # <-- equivalent env form
+#   python generate_events.py --help                            # list all options
 # =============================================================================
 import os, sys
+
+# --- accept KEY=VALUE options on the command line (argv) as well as via the environment ---
+# Any `KEY=VALUE` token on the command line is copied into os.environ BEFORE the settings below
+# are read, so the two forms are equivalent and command-line tokens win over the environment.
+# (This must run before the os.environ.get(...) reads in the USER SECTION.)
+_OPTIONS = {  # name -> one-line help, for --help
+    "MESON": "vector meson: rho0 | phi", "N": "number of events", "E": "beam energy [GeV]",
+    "BEAM": "lepton beam: e | mu", "WEIGHT": "yield weight: flux | amp | vpk | hand | toy",
+    "Q2MIN": "Q^2 lower [GeV^2]", "Q2MAX": "Q^2 upper [GeV^2]", "XBMIN": "x_B lower",
+    "XBMAX": "x_B upper", "TMAX": "flat t' upper bound [GeV^2]", "POL": "beam helicity magnitude",
+    "BW": "sample Breit-Wigner lineshape: 1 | 0", "CHUNK": "events per Lund file",
+    "AMP_FILE": "path to a file defining user_amplitudes(Q2,t)", "SEED": "random seed",
+    "LUND_KIN": "append 8 kinematic columns (blind-safe): 1 | 0",
+    "LUND_TRUTH": "append 16 truth-amplitude columns: 1 | 0",
+    "MULTI": "multi-energy mode: 1 | 0 (or pass --multi-energy)",
+    "LUMI": "relative beam luminosities for MULTI, e.g. 2,1,1",
+    "WEIGHTED": "keep all flat events with physics weight in Lund field 10: 1 | 0",
+}
+if "--help" in sys.argv or "-h" in sys.argv:
+    print("Usage: python generate_events.py [KEY=VALUE ...] [--multi-energy]\n\n"
+          "Options (KEY=VALUE, on the command line or as environment variables):")
+    for _k, _h in _OPTIONS.items():
+        print(f"  {_k:<11} {_h}")
+    print("\nExample:\n  python generate_events.py MESON=rho0 N=60000 Q2MIN=1.0 Q2MAX=9.0 "
+          "XBMIN=0.09 XBMAX=0.68 TMAX=5.5")
+    sys.exit(0)
+for _tok in sys.argv[1:]:
+    if "=" in _tok and not _tok.startswith("-"):
+        _k, _v = _tok.split("=", 1)
+        os.environ[_k] = _v
+        if _k not in _OPTIONS:
+            print(f"[warn] unknown option '{_k}' (ignored by the settings; run --help for the list)",
+                  file=sys.stderr)
+
 import numpy as np
 import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
 HERE = os.path.dirname(os.path.abspath(__file__))
