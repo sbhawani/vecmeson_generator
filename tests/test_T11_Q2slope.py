@@ -6,12 +6,12 @@
 # generated yield is set entirely by the generator's KINEMATIC factors.  For pure T11 the
 # angle-integrated intensity is sigma_T = |T11|^2 = 1 (sigma_L = 0), so:
 #
-#   WEIGHT=amp   dN/dQ^2 = A(Q^2)              (phase-space acceptance ONLY: the cuts
+#   WEIGHT=amp   dN/dQ^2 = P(Q^2)              (kinematic phase space ONLY: the cuts
 #                                               y<0.99, E'>0.3, W^2>(M+m_V)^2 sculpt Q^2
 #                                               even for a flat weight -- it is NOT flat)
-#   WEIGHT=flux  dN/dQ^2 = A(Q^2) * Gamma(Q^2) with the Diehl flux
+#   WEIGHT=flux  dN/dQ^2 = P(Q^2) * Gamma(Q^2) with the Diehl flux
 #                                               Gamma ~ (y^2/(1-eps))*(1-xB)/xB*(1/Q^2)
-#   RATIO flux/amp = Gamma(Q^2)                (the acceptance A(Q^2) divides out) -> this
+#   RATIO flux/amp = Gamma(Q^2)                (the phase-space volume P(Q^2) divides out) -> this
 #                                               isolates the flux and is the clean 1/Q^2 test.
 #
 # The explicit 1/Q^2 in the flux dominates, modulated by y^2/(1-eps) and (1-xB)/xB
@@ -103,21 +103,23 @@ def main():
     n_ratio, e_ratio, m_ratio = fit_power(_CENTRES, ratio,  c_ratio)
 
     print("\n=== Q^2-slope fits  (dN/dQ^2 ~ Q^(-n)) ===")
-    print(f"  WEIGHT=amp   : n = {n_amp:+.3f} +/- {e_amp:.3f}   phase-space acceptance only")
-    print(f"  WEIGHT=flux  : n = {n_flux:+.3f} +/- {e_flux:.3f}   acceptance x flux")
+    print(f"  WEIGHT=amp   : n = {n_amp:+.3f} +/- {e_amp:.3f}   kinematic phase space only "
+          f"(NOT detector acceptance: y<0.99, W^2>(M+m_V)^2, |cos*|<=1 are PHYSICAL limits)")
+    print(f"  WEIGHT=flux  : n = {n_flux:+.3f} +/- {e_flux:.3f}   phase space x flux")
     print(f"  flux / amp   : n = {n_ratio:+.3f} +/- {e_ratio:.3f}   FLUX isolated -> compare to 1/Q^2 (n=2)")
 
-    # PROOF that the raw-output deviation from 1/Q^2 is the ACCEPTANCE, not a kinematics bug:
-    # predict the raw flux output as (measured acceptance) x (1/Q^2) and overlay it.  If the raw
-    # points lie on this curve, then raw = acceptance x 1/Q^2 exactly -> the flux IS 1/Q^2 and the
-    # whole deviation from the straight 1/Q^2 line is the (non-flat) acceptance.
+    # PROOF that the raw-output deviation from 1/Q^2 is the (physical) PHASE SPACE, not a
+    # kinematics bug: predict the raw flux output as (measured phase-space volume) x (1/Q^2) and
+    # overlay it.  If the raw points lie on this curve, then raw = phase space x 1/Q^2 exactly ->
+    # the flux IS 1/Q^2 and the whole deviation from the straight 1/Q^2 line is the (non-flat)
+    # physical phase space (dominated by y<0.99: at high Q^2, nu=Q^2/(2 M xB) grows -> y->1).
     mm = (c_amp > 0) & (c_flux > 0)
     c0f, y0f = _CENTRES[mm][0], d_flux[mm][0]
-    pred_raw = y0f * (d_amp[mm] / d_amp[mm][0]) * (c0f / _CENTRES[mm]) ** 2   # acceptance x 1/Q^2
+    pred_raw = y0f * (d_amp[mm] / d_amp[mm][0]) * (c0f / _CENTRES[mm]) ** 2   # phase space x 1/Q^2
 
     # --- plot ---------------------------------------------------------------
     fig, axs = plt.subplots(1, 3, figsize=(18, 5))
-    panels = [(_CENTRES, d_amp,  m_amp,   n_amp,   e_amp,   "WEIGHT=amp (acceptance only)",   None),
+    panels = [(_CENTRES, d_amp,  m_amp,   n_amp,   e_amp,   "WEIGHT=amp (kinematic phase space only)",   None),
               (_CENTRES, d_flux, m_flux,  n_flux,  e_flux,  "WEIGHT=flux RAW output (what Harut plots)", 2.0),
               (_CENTRES, ratio,  m_ratio, n_ratio, e_ratio, "flux / amp (FLUX isolated)",      2.0)]
     for i, (ax, (c, y, m, n, e, tag, refn)) in enumerate(zip(axs, panels)):
@@ -125,16 +127,16 @@ def main():
         ax.plot(c[m], y[m], "o", ms=5, label=r"generated")
         if refn is not None:
             ax.plot(c[m], y0 * (c[m] / c0) ** (-refn), "--", label=r"$1/Q^2$ (n=2)")
-        if i == 1:   # middle panel: the acceptance x 1/Q^2 prediction (the real explanation)
+        if i == 1:   # middle panel: the phase-space x 1/Q^2 prediction (the real explanation)
             ax.plot(_CENTRES[mm], pred_raw, "-", color="crimson", lw=2,
-                    label=r"acceptance $\times\,1/Q^2$")
+                    label=r"phase space $\times\,1/Q^2$")
         else:
             ax.plot(c[m], y0 * (c[m] / c0) ** (-n), "-", alpha=0.7, label=fr"fit $Q^{{-{n:.2f}}}$")
         ax.set_xscale("log"); ax.set_yscale("log")
         ax.set_xlabel(r"$Q^2$ [GeV$^2$]"); ax.set_ylabel(r"$dN/dQ^2$ [arb.]")
         ax.set_title(f"{tag}\nn = {n:.3f} $\\pm$ {e:.3f}")
         ax.legend(); ax.grid(True, which="both", alpha=0.25)
-    fig.suptitle(r"Pure $T_{11}=1$ case test: raw $dN/dQ^2$ = acceptance $\times$ flux; "
+    fig.suptitle(r"Pure $T_{11}=1$ case test: raw $dN/dQ^2$ = phase space $\times$ flux; "
                  r"the flux itself is $1/Q^2$", fontsize=13)
     fig.tight_layout()
     out = os.path.join(HERE, "test_T11_Q2slope.pdf")
