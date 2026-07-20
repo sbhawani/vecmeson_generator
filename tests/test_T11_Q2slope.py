@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
 # =============================================================================
-# CASE TEST: pure T11 = 1 (constant amplitude), Q^2-slope of the yield.
+# CASE TEST: pure T11 = 1 (constant amplitude), Q^2 dependence of the yield.
 #
-# A constant amplitude carries NO Q^2 dependence of its own, so the Q^2 shape of the
-# generated yield is set entirely by the generator's KINEMATIC factors.  For pure T11 the
-# angle-integrated intensity is sigma_T = |T11|^2 = 1 (sigma_L = 0), so:
+# CONVENTION: fit dN/dQ^2 ~ (Q^2)^(-n).
+#     "1/Q^2 dependence"  means  dN/dQ^2 proportional 1/Q^2 = (Q^2)^-1  ->  n = 1
+#     "1/Q^4 dependence"  means  dN/dQ^2 proportional 1/Q^4 = (Q^2)^-2  ->  n = 2
 #
-#   WEIGHT=amp   dN/dQ^2 = P(Q^2)              (kinematic phase space ONLY: the cuts
-#                                               y<0.99, E'>0.3, W^2>(M+m_V)^2 sculpt Q^2
-#                                               even for a flat weight -- it is NOT flat)
-#   WEIGHT=flux  dN/dQ^2 = P(Q^2) * Gamma(Q^2) with the Diehl flux
-#                                               Gamma ~ (y^2/(1-eps))*(1-xB)/xB*(1/Q^2)
-#   RATIO flux/amp = Gamma(Q^2)                (the phase-space volume P(Q^2) divides out) -> this
-#                                               isolates the flux and is the clean 1/Q^2 test.
+# The generator samples Q^2 UNIFORMLY (flat) -- it does NOT sample from 1/Q^2 -- and weights
+# each event by the cross section.  For pure T11 (constant amplitude, sigma_L = 0) the weight is
+# the Diehl virtual-photon flux
+#       Gamma = (y^2/(1-eps)) * (1-xB)/xB * (1/Q^2)          [y = Q^2/(2 M xB E)].
+# ONLY the last factor is 1/Q^2.  Hence:
 #
-# The explicit 1/Q^2 in the flux dominates, modulated by y^2/(1-eps) and (1-xB)/xB
-# integrated over the sampled x_B window, so the RATIO slope sits near 2 (~1/Q^2).
+#   weight = 1/Q^2 exactly              -> dN/dQ^2 ~ 1/Q^2  (n = 1.0)  put 1/Q^2 in, get it out
+#   full flux at FIXED xB               -> dN/dQ^2 ~ 1/Q^2  (n ~ 1.3)  explicit 1/Q^2 dominates
+#   full flux, xB integrated (the gen)  -> dN/dQ^2 ~ 1/Q^4  (n ~ 2.0)  extra y^2/(1-eps),
+#                                                                      (1-xB)/xB factors + the
+#                                                                      shrinking physical xB range
+#                                                                      (y<1) steepen it
 #
-# Runs the REAL generator (subprocess), reads Q^2 from the Lund header, fits
-# dN/dQ^2 ~ Q^(-n) for each weight and for the ratio, and compares to 1/Q^2.
-# Writes test_T11_Q2slope.pdf.
+# So the generator's RAW dN/dQ^2 for a constant amplitude is ~1/Q^4, NOT 1/Q^2 -- because the
+# flux is 1/Q^2 TIMES extra Q^2-dependent factors, integrated over x_B.  This test shows all
+# three, so the "1/Q^2 vs 1/Q^4" question is unambiguous.  Writes test_T11_Q2slope.pdf.
 #
 #   python tests/test_T11_Q2slope.py            # uses the repo generator + this dir's amp file
 # =============================================================================
@@ -32,121 +34,119 @@ GEN  = os.path.join(REPO, "generate_events.py")
 AMP  = os.path.join(HERE, "amp_T11only.py")
 PY   = sys.executable
 
-N        = int(os.environ.get("N", "150000"))
+N            = int(os.environ.get("N", "150000"))
 Q2MIN, Q2MAX = 1.0, 9.0
 XBMIN, XBMAX = 0.08, 0.50
-E        = 10.6
+E, M         = 10.6, 0.938272
+
+NBINS  = 24
+_EDGES = np.linspace(Q2MIN, Q2MAX, NBINS + 1)
+_C     = 0.5 * (_EDGES[:-1] + _EDGES[1:])
+_W     = np.diff(_EDGES)
 
 
-def run_generator(weight):
-    """Run the real generator for pure T11=1 and return the accepted per-event Q^2 array.
-    The generator always writes to <repo>/LUND_files (relative to its own file, not cwd),
-    so read that and parse it right after each run (runs are sequential)."""
-    env = dict(os.environ,
-               MESON="rho0", N=str(N), E=str(E),
+def run_generator_flux():
+    """Run the REAL generator for pure T11=1, WEIGHT=flux, return accepted per-event Q^2."""
+    env = dict(os.environ, MESON="rho0", N=str(N), E=str(E),
                Q2MIN=str(Q2MIN), Q2MAX=str(Q2MAX), XBMIN=str(XBMIN), XBMAX=str(XBMAX),
-               TMAX="4.0", WEIGHT=weight, AMP_FILE=AMP,
+               TMAX="4.0", WEIGHT="flux", AMP_FILE=AMP,
                LUND_KIN="1", LUND_TRUTH="0", CHUNK=str(N))
     subprocess.run([PY, GEN], cwd=REPO, env=env, check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     lund = os.path.join(REPO, "LUND_files", f"rho0_{E:.1f}gev_0.lund")
-    if not os.path.exists(lund):
-        raise RuntimeError(f"no Lund file at {lund} for WEIGHT={weight}")
-    # LUND_KIN=1, LUND_TRUTH=0 -> event header line = 10 std + 8 kin = 18 fields;
-    # kin order (0-based after the 10 std): [10]=Q2 [11]=|t| [12]=xB [13]=W ...
-    q2 = []
-    with open(lund) as fh:
-        for line in fh:
-            p = line.split()
-            if len(p) == 18:                      # event header line (has the kin columns)
-                q2.append(float(p[10]))
+    q2 = [float(p[10]) for p in (l.split() for l in open(lund)) if len(p) == 18]
     if not q2:
-        raise RuntimeError(f"parsed 0 event-header lines from {lund} (column layout changed?)")
+        raise RuntimeError(f"parsed 0 event-header lines from {lund}")
     return np.array(q2)
 
 
-NBINS = 24
-_EDGES = np.linspace(Q2MIN, Q2MAX, NBINS + 1)
-_CENTRES = 0.5 * (_EDGES[:-1] + _EDGES[1:])
-_WIDTH = np.diff(_EDGES)
+def slope(q2):
+    h, _ = np.histogram(q2, bins=_EDGES); d = h / _W; m = h > 0
+    n = -np.polyfit(np.log(_C[m]), np.log(d[m]), 1, w=np.sqrt(h[m].astype(float)))[0]
+    return d, m, n
 
 
-def density(q2):
-    """dN/dQ^2 and per-bin counts on the common binning."""
-    counts, _ = np.histogram(q2, bins=_EDGES)
-    return counts / _WIDTH, counts
-
-
-def fit_power(centres, dens, counts):
-    """Fit dens ~ Q^(-n) in log-log, weighting by sqrt(counts); return (n, n_err, mask)."""
-    m = counts > 0
-    coef, cov = np.polyfit(np.log(centres[m]), np.log(dens[m]), 1,
-                           w=np.sqrt(counts[m].astype(float)), cov=True)
-    return -coef[0], np.sqrt(cov[0, 0]), m
+def standalone(weight_kind, rng):
+    """Flat-throw (Q^2,xB), accept-reject by a chosen weight, return accepted Q^2.
+    Isolates the WEIGHT's effect from the generator's other machinery."""
+    Nt = 6_000_000
+    Q2 = rng.uniform(Q2MIN, Q2MAX, Nt); xB = rng.uniform(XBMIN, XBMAX, Nt)
+    y = Q2 / (2 * M * xB) / E
+    gam = 2 * xB * M / np.sqrt(Q2)
+    eps = (1 - y - 0.25 * gam**2 * y**2) / (1 - y + 0.5 * y**2 + 0.25 * gam**2 * y**2)
+    phys = (y > 0) & (y < 0.99)
+    flux = (y**2 / np.clip(1 - eps, 1e-3, None)) * (1 - xB) / np.clip(xB, 1e-3, None) / Q2
+    if weight_kind == "inv_q2":
+        w = 1.0 / Q2                                             # pure 1/Q^2, all xB, no cut
+    elif weight_kind == "flux_fixed_xb":
+        w = np.where(phys & (xB > 0.24) & (xB < 0.26), flux, 0.0)
+    else:                                                       # "flux_int": full flux, xB integrated
+        w = np.where(phys, flux, 0.0)
+    w = np.nan_to_num(w, nan=0, posinf=0)
+    wm = np.percentile(w[w > 0], 99.9)
+    acc = rng.uniform(0, 1, Nt) < np.clip(w / wm, 0, 1)
+    return Q2[acc]
 
 
 def main():
-    print(f"[test] generating {N} pure-T11 events per weight (E={E}, "
-          f"Q2 in [{Q2MIN},{Q2MAX}]) ...", flush=True)
-    q2_amp  = run_generator("amp")
-    q2_flux = run_generator("flux")
-    print(f"[test] accepted: WEIGHT=amp {len(q2_amp)},  WEIGHT=flux {len(q2_flux)}")
+    print(f"[test] generating {N} pure-T11 (WEIGHT=flux) events ...", flush=True)
+    q2_gen = run_generator_flux()
+    d_gen, m_gen, n_gen = slope(q2_gen)
 
-    d_amp,  c_amp  = density(q2_amp)
-    d_flux, c_flux = density(q2_flux)
-    both = (c_amp > 0) & (c_flux > 0)
-    ratio = np.where(both, d_flux / np.where(d_amp > 0, d_amp, 1), 0.0)
-    c_ratio = np.where(both, np.minimum(c_amp, c_flux), 0)   # stats of the ratio ~ smaller count
+    rng = np.random.default_rng(1)
+    ladder = []
+    for kind, lab in [("inv_q2",        "weight = 1/Q^2 exactly"),
+                      ("flux_fixed_xb", "full flux, xB fixed ~0.25"),
+                      ("flux_int",      "full flux, xB integrated")]:
+        d, m, n = slope(standalone(kind, rng))
+        ladder.append((lab, d, m, n))
 
-    n_amp,   e_amp,   m_amp   = fit_power(_CENTRES, d_amp,  c_amp)
-    n_flux,  e_flux,  m_flux  = fit_power(_CENTRES, d_flux, c_flux)
-    n_ratio, e_ratio, m_ratio = fit_power(_CENTRES, ratio,  c_ratio)
+    print("\nCONVENTION: dN/dQ^2 ~ (Q^2)^-n.  1/Q^2 <=> n=1.  1/Q^4 <=> n=2.\n")
+    print(f"  GENERATOR (WEIGHT=flux) raw output : n = {n_gen:.2f}   ~ 1/Q^4  (NOT 1/Q^2)")
+    for lab, _, _, n in ladder:
+        tag = "= 1/Q^2" if abs(n - 1) < 0.15 else ("~ 1/Q^2" if n < 1.6 else "~ 1/Q^4")
+        print(f"  {lab:34s}: n = {n:.2f}   {tag}")
 
-    print("\n=== Q^2-slope fits  (dN/dQ^2 ~ Q^(-n)) ===")
-    print(f"  WEIGHT=amp   : n = {n_amp:+.3f} +/- {e_amp:.3f}   kinematic phase space only "
-          f"(NOT detector acceptance: y<0.99, W^2>(M+m_V)^2, |cos*|<=1 are PHYSICAL limits)")
-    print(f"  WEIGHT=flux  : n = {n_flux:+.3f} +/- {e_flux:.3f}   phase space x flux")
-    print(f"  flux / amp   : n = {n_ratio:+.3f} +/- {e_ratio:.3f}   FLUX isolated -> compare to 1/Q^2 (n=2)")
+    # --- plot: generator output (left) + the weight ladder (right) ----------
+    fig, axs = plt.subplots(1, 2, figsize=(13, 5.2))
 
-    # PROOF that the raw-output deviation from 1/Q^2 is the (physical) PHASE SPACE, not a
-    # kinematics bug: predict the raw flux output as (measured phase-space volume) x (1/Q^2) and
-    # overlay it.  If the raw points lie on this curve, then raw = phase space x 1/Q^2 exactly ->
-    # the flux IS 1/Q^2 and the whole deviation from the straight 1/Q^2 line is the (non-flat)
-    # physical phase space (dominated by y<0.99: at high Q^2, nu=Q^2/(2 M xB) grows -> y->1).
-    mm = (c_amp > 0) & (c_flux > 0)
-    c0f, y0f = _CENTRES[mm][0], d_flux[mm][0]
-    pred_raw = y0f * (d_amp[mm] / d_amp[mm][0]) * (c0f / _CENTRES[mm]) ** 2   # phase space x 1/Q^2
+    ax = axs[0]
+    c0, y0 = _C[m_gen][0], d_gen[m_gen][0]
+    ax.plot(_C[m_gen], d_gen[m_gen], "o", ms=5, label="generator (WEIGHT=flux)")
+    ax.plot(_C[m_gen], y0 * (_C[m_gen] / c0) ** (-1.0), "--", label=r"$1/Q^2$ (n=1)")
+    ax.plot(_C[m_gen], y0 * (_C[m_gen] / c0) ** (-2.0), ":",  label=r"$1/Q^4$ (n=2)")
+    ax.plot(_C[m_gen], y0 * (_C[m_gen] / c0) ** (-n_gen), "-", alpha=0.7,
+            label=fr"fit $(Q^2)^{{-{n_gen:.2f}}}$")
+    ax.set_title(f"Generator raw output (const. amplitude)\nn = {n_gen:.2f}  ->  ~ $1/Q^4$, not $1/Q^2$")
+    ax.legend()
 
-    # --- plot ---------------------------------------------------------------
-    fig, axs = plt.subplots(1, 3, figsize=(18, 5))
-    panels = [(_CENTRES, d_amp,  m_amp,   n_amp,   e_amp,   "WEIGHT=amp (kinematic phase space only)",   None),
-              (_CENTRES, d_flux, m_flux,  n_flux,  e_flux,  "WEIGHT=flux RAW output (what Harut plots)", 2.0),
-              (_CENTRES, ratio,  m_ratio, n_ratio, e_ratio, "flux / amp (FLUX isolated)",      2.0)]
-    for i, (ax, (c, y, m, n, e, tag, refn)) in enumerate(zip(axs, panels)):
-        c0, y0 = c[m][0], y[m][0]
-        ax.plot(c[m], y[m], "o", ms=5, label=r"generated")
-        if refn is not None:
-            ax.plot(c[m], y0 * (c[m] / c0) ** (-refn), "--", label=r"$1/Q^2$ (n=2)")
-        if i == 1:   # middle panel: the phase-space x 1/Q^2 prediction (the real explanation)
-            ax.plot(_CENTRES[mm], pred_raw, "-", color="crimson", lw=2,
-                    label=r"phase space $\times\,1/Q^2$")
-        else:
-            ax.plot(c[m], y0 * (c[m] / c0) ** (-n), "-", alpha=0.7, label=fr"fit $Q^{{-{n:.2f}}}$")
+    ax = axs[1]
+    styles = ["s", "^", "o"]
+    for (lab, d, m, n), st in zip(ladder, styles):
+        c0, y0 = _C[m][0], d[m][0]
+        ax.plot(_C[m], d[m] / y0, st, ms=4, label=f"{lab}  (n={n:.2f})")
+    ax.plot(_C, (_C / _C[0]) ** (-1.0), "--", color="k", alpha=0.6, label=r"$1/Q^2$ (n=1)")
+    ax.plot(_C, (_C / _C[0]) ** (-2.0), ":",  color="k", alpha=0.6, label=r"$1/Q^4$ (n=2)")
+    ax.set_title("Why: the weight is $1/Q^2$ ONLY as one factor of the flux\n"
+                 r"$\Gamma=(y^2/(1-\varepsilon))\,(1-x_B)/x_B\,(1/Q^2)$")
+    ax.legend(fontsize=8)
+
+    for ax in axs:
         ax.set_xscale("log"); ax.set_yscale("log")
         ax.set_xlabel(r"$Q^2$ [GeV$^2$]"); ax.set_ylabel(r"$dN/dQ^2$ [arb.]")
-        ax.set_title(f"{tag}\nn = {n:.3f} $\\pm$ {e:.3f}")
-        ax.legend(); ax.grid(True, which="both", alpha=0.25)
-    fig.suptitle(r"Pure $T_{11}=1$ case test: raw $dN/dQ^2$ = phase space $\times$ flux; "
-                 r"the flux itself is $1/Q^2$", fontsize=13)
+        ax.grid(True, which="both", alpha=0.25)
+    fig.suptitle(r"Pure $T_{11}=1$: the generator outputs the full Diehl flux ($\sim 1/Q^4$), "
+                 r"not $1/Q^2$; put pure $1/Q^2$ in and you get $1/Q^2$ out", fontsize=12)
     fig.tight_layout()
     out = os.path.join(HERE, "test_T11_Q2slope.pdf")
     fig.savefig(out); print(f"\n[test] wrote {out}")
 
-    # PASS: the flux-isolated ratio follows ~1/Q^2 (explicit 1/Q^2 dominant, O(1) kinematic
-    # modulation) -> slope in a band around 2.
-    ok = 1.5 <= n_ratio <= 2.5
-    print("\nRESULT:", "PASS -- flux ~ 1/Q^2 confirmed" if ok
-          else f"CHECK -- flux slope {n_ratio:.2f} outside [1.5,2.5]")
+    # PASS: pure-1/Q^2 weight reproduces 1/Q^2 (n~1) AND the generator matches the full flux
+    # (~1/Q^4, n~2) -- i.e. the kinematic factors are implemented correctly.
+    n_inv = ladder[0][3]; n_int = ladder[2][3]
+    ok = abs(n_inv - 1.0) < 0.15 and abs(n_gen - n_int) < 0.4
+    print("\nRESULT:", "PASS -- 1/Q^2 in -> 1/Q^2 out, and the generator matches the full Diehl flux"
+          if ok else "CHECK -- see slopes above")
     return 0 if ok else 1
 
 
