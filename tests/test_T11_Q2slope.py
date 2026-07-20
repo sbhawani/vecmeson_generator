@@ -107,23 +107,35 @@ def main():
     print(f"  WEIGHT=flux  : n = {n_flux:+.3f} +/- {e_flux:.3f}   acceptance x flux")
     print(f"  flux / amp   : n = {n_ratio:+.3f} +/- {e_ratio:.3f}   FLUX isolated -> compare to 1/Q^2 (n=2)")
 
+    # PROOF that the raw-output deviation from 1/Q^2 is the ACCEPTANCE, not a kinematics bug:
+    # predict the raw flux output as (measured acceptance) x (1/Q^2) and overlay it.  If the raw
+    # points lie on this curve, then raw = acceptance x 1/Q^2 exactly -> the flux IS 1/Q^2 and the
+    # whole deviation from the straight 1/Q^2 line is the (non-flat) acceptance.
+    mm = (c_amp > 0) & (c_flux > 0)
+    c0f, y0f = _CENTRES[mm][0], d_flux[mm][0]
+    pred_raw = y0f * (d_amp[mm] / d_amp[mm][0]) * (c0f / _CENTRES[mm]) ** 2   # acceptance x 1/Q^2
+
     # --- plot ---------------------------------------------------------------
     fig, axs = plt.subplots(1, 3, figsize=(18, 5))
     panels = [(_CENTRES, d_amp,  m_amp,   n_amp,   e_amp,   "WEIGHT=amp (acceptance only)",   None),
               (_CENTRES, d_flux, m_flux,  n_flux,  e_flux,  "WEIGHT=flux RAW output (what Harut plots)", 2.0),
               (_CENTRES, ratio,  m_ratio, n_ratio, e_ratio, "flux / amp (FLUX isolated)",      2.0)]
-    for ax, (c, y, m, n, e, tag, refn) in zip(axs, panels):
+    for i, (ax, (c, y, m, n, e, tag, refn)) in enumerate(zip(axs, panels)):
         c0, y0 = c[m][0], y[m][0]
         ax.plot(c[m], y[m], "o", ms=5, label=r"generated")
         if refn is not None:
             ax.plot(c[m], y0 * (c[m] / c0) ** (-refn), "--", label=r"$1/Q^2$ (n=2)")
-        ax.plot(c[m], y0 * (c[m] / c0) ** (-n), "-", alpha=0.7, label=fr"fit $Q^{{-{n:.2f}}}$")
+        if i == 1:   # middle panel: the acceptance x 1/Q^2 prediction (the real explanation)
+            ax.plot(_CENTRES[mm], pred_raw, "-", color="crimson", lw=2,
+                    label=r"acceptance $\times\,1/Q^2$")
+        else:
+            ax.plot(c[m], y0 * (c[m] / c0) ** (-n), "-", alpha=0.7, label=fr"fit $Q^{{-{n:.2f}}}$")
         ax.set_xscale("log"); ax.set_yscale("log")
         ax.set_xlabel(r"$Q^2$ [GeV$^2$]"); ax.set_ylabel(r"$dN/dQ^2$ [arb.]")
         ax.set_title(f"{tag}\nn = {n:.3f} $\\pm$ {e:.3f}")
         ax.legend(); ax.grid(True, which="both", alpha=0.25)
-    fig.suptitle(r"Pure $T_{11}=1$ case test: $Q^2$ slope (constant amplitude "
-                 r"$\Rightarrow$ kinematics/flux only)", fontsize=13)
+    fig.suptitle(r"Pure $T_{11}=1$ case test: raw $dN/dQ^2$ = acceptance $\times$ flux; "
+                 r"the flux itself is $1/Q^2$", fontsize=13)
     fig.tight_layout()
     out = os.path.join(HERE, "test_T11_Q2slope.pdf")
     fig.savefig(out); print(f"\n[test] wrote {out}")
