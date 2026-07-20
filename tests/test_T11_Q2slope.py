@@ -110,7 +110,7 @@ def main():
     # --- plot ---------------------------------------------------------------
     fig, axs = plt.subplots(1, 3, figsize=(18, 5))
     panels = [(_CENTRES, d_amp,  m_amp,   n_amp,   e_amp,   "WEIGHT=amp (acceptance only)",   None),
-              (_CENTRES, d_flux, m_flux,  n_flux,  e_flux,  "WEIGHT=flux (acceptance x flux)", None),
+              (_CENTRES, d_flux, m_flux,  n_flux,  e_flux,  "WEIGHT=flux RAW output (what Harut plots)", 2.0),
               (_CENTRES, ratio,  m_ratio, n_ratio, e_ratio, "flux / amp (FLUX isolated)",      2.0)]
     for ax, (c, y, m, n, e, tag, refn) in zip(axs, panels):
         c0, y0 = c[m][0], y[m][0]
