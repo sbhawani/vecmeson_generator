@@ -28,7 +28,8 @@ _OPTIONS = {  # name -> one-line help, for --help
     "Q2MIN": "Q^2 lower [GeV^2]", "Q2MAX": "Q^2 upper [GeV^2]", "XBMIN": "x_B lower",
     "XBMAX": "x_B upper", "TMAX": "flat t' upper bound [GeV^2]", "POL": "beam helicity magnitude",
     "BW": "sample Breit-Wigner lineshape: 1 | 0", "CHUNK": "events per Lund file",
-    "AMP_FILE": "path to a file defining user_amplitudes(Q2, xB, t)", "SEED": "random seed",
+    "AMP_FILE": "path to a file defining user_amplitudes(Q2, xB, t)",
+    "SEED": "random seed (int); omit for a fresh seed (different events) each run",
     "LUND_KIN": "append 8 kinematic columns (blind-safe): 1 | 0",
     "LUND_TRUTH": "append 16 truth-amplitude columns: 1 | 0",
     "MULTI": "multi-energy mode: 1 | 0 (or pass --multi-energy)",
@@ -74,7 +75,11 @@ EVENTS_PER_FILE = int(os.environ.get("CHUNK", "5000")) # events per Lund file (G
 BEAM_POL    = float(os.environ.get("POL", "0.0"))      # beam helicity magnitude (0 = unpolarised)
 Q2_REF      = 2.6                                       # Q^2 [GeV^2] for the amplitude-vs-|t| plot
 XB_REF      = 0.3                                       # x_B for the amplitude-vs-|t| plot (amps now x_B-dependent)
-SEED        = 1
+# Random seed: omit for a FRESH seed each run (different events every time); set SEED=<int> to
+# reproduce a run.  The seed actually used is printed at startup so any run can be reproduced.
+_seed_env   = os.environ.get("SEED", "")
+SEED        = int(_seed_env) if _seed_env not in ("", "none", "None", "random") \
+              else int.from_bytes(os.urandom(4), "little")
 MULTI_ENERGIES = [6.535, 7.546, 10.6]                  # beams used in multi-energy mode
 MULTI       = ("--multi-energy" in sys.argv) or (os.environ.get("MULTI", "0") not in ("0", "", "false", "False"))
 E_LABEL     = ("multi-energy " + "/".join(f"{e:g}" for e in MULTI_ENERGIES) + " GeV") if MULTI else f"$E={BEAM_ENERGY}$ GeV"
@@ -516,6 +521,9 @@ def main():
     if MESON not in MESONS:
         sys.exit(f"MESON must be one of {list(MESONS)}")
     meta = MESONS[MESON]; rng = np.random.default_rng(SEED)
+    print(f"[seed] SEED={SEED}"
+          + ("  (random; pass SEED={} to reproduce this run)".format(SEED) if not _seed_env else ""),
+          flush=True)
     kd = os.path.join(HERE, "Kin_plots"); ld = os.path.join(HERE, "LUND_files")
     os.makedirs(kd, exist_ok=True); os.makedirs(ld, exist_ok=True)
     if MULTI:
