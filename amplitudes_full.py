@@ -48,8 +48,13 @@ def _blocks(A):
                 (-1, -1): -u11, (0, -1): u01, (-1, 0): u10, (-1, 1): -u1m1}
 
     c = lambda i, j: A[:, i] + 1j * A[:, j]
+    # Optional 35th column = Im U^{(0)}_11: Mode B frees the U-sector phase (the strict
+    # non-flip truncation has ONLY the global-phase symmetry, so it carries 17 real
+    # parameters -- App. A4 / review 2026-08-04). A (N,34) input is unchanged: the
+    # unpolarized-and-Mode-C gauge Im U^{(0)}_11 = 0 stays the default.
+    imu11 = A[:, 34] if A.shape[1] > 34 else 0.0
     T0 = ndict(A[:, 0] + 0j, c(1, 2), c(3, 4), c(5, 6), c(7, 8))
-    U0 = udict(A[:, 9] + 0j, c(10, 11), c(12, 13), c(14, 15))
+    U0 = udict(A[:, 9] + 1j * imu11, c(10, 11), c(12, 13), c(14, 15))
     T1 = ndict(c(16, 17), c(18, 19), c(20, 21), c(22, 23), c(24, 25))
     U1 = udict(c(26, 27), c(28, 29), c(30, 31), c(32, 33))
     return T0, U0, T1, U1

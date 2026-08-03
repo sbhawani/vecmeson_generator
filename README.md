@@ -116,6 +116,42 @@ equal = equal running time). Each beam is written to `LUND_files/<E>GeV/`, and `
 records `beam_energy  relative_luminosity  accepted_events` for the data-analysis normalization
 `N_bin(E) / L_E`. This needs `WEIGHT=flux` (the default) so the yields include the flux.
 
+## Target-polarization modes (Mode A/B/C)
+
+The generator mirrors the extraction's mode tiers. `MODE=A` (default) is the
+historical unpolarized generator, bit-identical code path. The polarized modes add
+the full Diehl (4.5) intensity from the ported, self-auditing modules
+`amplitudes_full.py` + `diehl_w_full.py` (11 machine-precision audits run in THIS
+tree, including the u-sector reducing bit-exactly to this generator's own `diehl_w`):
+
+```
+MODE=A                        # unpolarized target (default; 16 amplitude params)
+MODE=B PT=0.8                 # longitudinally polarized target, S_L = +-PT
+MODE=C PT=0.8 PHIS=0.0        # transversely polarized target about lab azimuth PHIS
+        FLIPSCALE=0.5         #   demo nucleon-flip block (or user_amplitudes_flip)
+```
+
+Per event the target spin sign is drawn balanced (+-1) -- a balanced draw IS the
+equal-luminosity two-state mixture, so the accepted counts per spin state carry the
+physical rate difference. Events carry the spin state in a `tspin` column and in the
+Lund header's `target_pol` field (slot 4, = tspin*PT; 0 in MODE=A).
+
+Physics content per mode:
+- MODE=B measures the unnatural-parity sector's SIGN AND PHASE: the l structure
+  functions are linear in U. Mode B carries 17 parameters -- the 16 of Mode A plus
+  Im U11, which `user_amplitudes` may now return complex (MODE=A truncates it to the
+  real part, with a warning: unpolarized data cannot see the U phase).
+- MODE=C reaches the nucleon-helicity-flip sector through the s/n structure
+  functions (linear in flip). Supply the 18 flip parameters via a
+  `user_amplitudes_flip(Q2, xB, t)` hook in your `AMP_FILE`, or use the FLIPSCALE
+  demo: an i-rotated copy of the non-flip pattern scaled by FLIPSCALE*sqrt(t')/M
+  (the RELATIVE phase between flip and non-flip is what the transverse asymmetries
+  see -- a real-scaled copy produces exactly zero).
+
+Validation (40k rho0 events, U = 0.35 T truth): MODE=B <S sin(Phi)> = 4.1 sigma,
+MODE=C with the phased flip 61 sigma, MODE=C with zero flip consistent with zero
+(transverse single-spin asymmetries REQUIRE flip amplitudes, as parity demands).
+
 ## Lund file structure
 
 **Header** -- the 10 standard CLAS12/GEMC fields, optionally followed by extra columns:

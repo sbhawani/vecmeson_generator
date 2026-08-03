@@ -197,14 +197,30 @@ if _AMP_FILE:
     print(f"[amplitudes] external AMP_FILE={_AMP_FILE}", flush=True)
 
 
+_WARNED_IMU11 = [False]
 def amps_to_params(Q2, xB, t):
-    """User amplitudes -> the 16-real-parameter vector (T11,U11 real; U00=0)."""
+    """User amplitudes -> the 16-real-parameter vector (T11,U11 real; U00=0).
+    In MODE=A a complex U11 is truncated to its real part -- and WARNED about, because
+    dropping Im U11 alone is NOT the phase gauge (that would rotate the whole U sector).
+    The polarized modes carry Im U11 as a 17th physical parameter (see amps_im_u11)."""
     T11, T00, T01, T10, T1m1, U11, U01, U10, U1m1 = user_amplitudes(Q2, xB, t)
     z = np.zeros(np.broadcast(np.asarray(Q2), np.asarray(xB), np.asarray(t)).shape, float)
     re = lambda x: np.real(x) + z; im = lambda x: np.imag(x) + z
+    if MODE == "A" and not _WARNED_IMU11[0] and np.any(np.abs(im(U11)) > 1e-12):
+        _WARNED_IMU11[0] = True
+        print("[amplitudes] WARNING: user U11 has an imaginary part; MODE=A drops it "
+              "(unpolarized data cannot see the U phase). To make it physical use "
+              "MODE=B (longitudinal target), where Im U11 is the 17th parameter.", flush=True)
     return np.stack([re(T11), re(T00), im(T00), re(T01), im(T01), re(T10), im(T10),
                      re(T1m1), im(T1m1), re(U11), re(U01), im(U01),
                      re(U10), im(U10), re(U1m1), im(U1m1)], axis=-1)
+
+
+def amps_im_u11(Q2, xB, t):
+    """Im U^{(0)}_11 -- physical in the polarized modes (Mode B carries 17 params)."""
+    U11 = user_amplitudes(Q2, xB, t)[5]
+    z = np.zeros(np.broadcast(np.asarray(Q2), np.asarray(xB), np.asarray(t)).shape, float)
+    return np.imag(U11) + z
 
 
 # ISSUE(vpk-comp #8): Blatt-Weisskopf L=1 barrier lineshape; vpK uses a Jackson running-width BW (broader
@@ -326,7 +342,8 @@ def throw(E, n_pool, rng, MV, GV, MH):
         fl = None
         if "user_amplitudes_flip" in globals():
             fl = np.asarray(user_amplitudes_flip(Q2, xB, -t), dtype=float)
-        A34 = np.concatenate([P16, fl if fl is not None else flip_params(P16, tprime)], 1)
+        A34 = np.concatenate([P16, fl if fl is not None else flip_params(P16, tprime),
+                              amps_im_u11(Q2, xB, -t)[:, None]], 1)   # 35th col: Im U11
         tspin = rng.choice([-1.0, 1.0], N)                   # balanced states = equal luminosity
         S_L = tspin * TARGET_PT if MODE == "B" else 0.0
         S_T = tspin * TARGET_PT if MODE == "C" else 0.0
