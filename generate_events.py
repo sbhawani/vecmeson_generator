@@ -33,6 +33,10 @@ _OPTIONS = {  # name -> one-line help, for --help
     "LUND_KIN": "append 8 kinematic columns (blind-safe): 1 | 0",
     "LUND_TRUTH": "append 16 truth-amplitude columns: 1 | 0",
     "MULTI": "multi-energy mode: 1 | 0 (or pass --multi-energy)",
+    "MODE": "target-polarization mode: A (unpolarized, default) | B (longitudinal) | C (transverse)",
+    "PT": "target polarization magnitude for MODE=B/C (default 0.8)",
+    "PHIS": "transverse spin-axis azimuth phi_S [rad] for MODE=C (default 0.0)",
+    "FLIPSCALE": "MODE=C demo nucleon-flip block: flip = FLIPSCALE*sqrt(t')/M x non-flip pattern (default 0; user_amplitudes_flip overrides)",
     "LUMI": "relative beam luminosities for MULTI, e.g. 2,1,1",
     "WEIGHTED": "keep all flat events with physics weight in Lund field 10: 1 | 0",
 }
@@ -73,6 +77,20 @@ LEP_PID = 11 if BEAM == "e" else 13                    # PDG id of beam / scatte
 N_EVENTS    = int(os.environ.get("N", "20000"))        # total events generated
 EVENTS_PER_FILE = int(os.environ.get("CHUNK", "5000")) # events per Lund file (GEMC limit); N/CHUNK files
 BEAM_POL    = float(os.environ.get("POL", "0.0"))      # beam helicity magnitude (0 = unpolarised)
+# --- target polarization modes (mirror of the extraction's Mode A/B/C tiers) -----------------
+# MODE=A: bit-identical to the historical generator (W from diehl_w on the 16 non-flip params).
+# MODE=B: longitudinally polarized target, balanced spin states S_L = +-PT drawn per event
+#         (a balanced draw IS the equal-luminosity mixture; counts N+- ~ I+- carry signal).
+# MODE=C: transversely polarized target, S_T = +-PT about the lab axis PHIS; the s/n sectors
+#         need a non-zero nucleon-flip block (user_amplitudes_flip hook, or FLIPSCALE demo).
+MODE        = str(os.environ.get("MODE", "A")).upper()
+TARGET_PT   = float(os.environ.get("PT", "0.8"))
+PHI_S       = float(os.environ.get("PHIS", "0.0"))
+FLIPSCALE   = float(os.environ.get("FLIPSCALE", "0.0"))
+if MODE not in ("A", "B", "C"):
+    raise SystemExit(f"MODE={MODE!r}: must be A, B, or C")
+if MODE != "A":
+    from diehl_w_full import W_full          # audited: u-sector == diehl_w.W bit-exactly
 Q2_REF      = 2.6                                       # Q^2 [GeV^2] for the amplitude-vs-|t| plot
 XB_REF      = 0.3                                       # x_B for the amplitude-vs-|t| plot (amps now x_B-dependent)
 # Random seed: omit for a FRESH seed each run (different events every time); set SEED=<int> to
@@ -173,6 +191,9 @@ if _AMP_FILE:
         user_amplitudes = lambda Q2, xB, t, _f=_ext: _f(Q2, t)    # legacy (Q2, t) amp file
         print(f"[amplitudes] AMP_FILE user_amplitudes takes {_nargs} args -> called as (Q2, t), "
               f"x_B ignored", flush=True)
+    if hasattr(_mod, "user_amplitudes_flip"):
+        user_amplitudes_flip = _mod.user_amplitudes_flip          # MODE=C flip block override
+        print("[amplitudes] AMP_FILE also provides user_amplitudes_flip (MODE=C)", flush=True)
     print(f"[amplitudes] external AMP_FILE={_AMP_FILE}", flush=True)
 
 
@@ -188,6 +209,31 @@ def amps_to_params(Q2, xB, t):
 
 # ISSUE(vpk-comp #8): Blatt-Weisskopf L=1 barrier lineshape; vpK uses a Jackson running-width BW (broader
 # high-mass tail). Match the lineshape for the final comparison. See ISSUES_vpk_comparison.md.
+def flip_params(P16, tprime):
+    """(N,18) nucleon-flip block for MODE=C.  Priority: a user_amplitudes_flip(Q2,xB,t)
+    hook in the user amplitude file (must return the 18 flip params); else the DEMO
+    pattern flip = FLIPSCALE * sqrt(t')/M x (non-flip pattern), with the threshold
+    factor sqrt(t')/M making the flip fraction t'-dependent as required (COMPASS Eq. 8).
+    Layout: [ReT1_11,ImT1_11, ReT1_00,ImT1_00, ReT1_01,ImT1_01, ReT1_10,ImT1_10,
+             ReT1_1m1,ImT1_1m1, ReU1_11,ImU1_11, ReU1_01,ImU1_01, ReU1_10,ImU1_10] + U1_1m1."""
+    N = len(P16)
+    k = (FLIPSCALE * np.sqrt(np.clip(tprime, 0, None)) / M)[:, None]
+    # i-ROTATED copy of the non-flip pattern (Re,Im) -> (-Im,Re): a purely real-scaled
+    # copy gives Im(T1 T0*) ~ 0 and the n-sector (hence every transverse single-spin
+    # asymmetry) vanishes identically -- the relative phase is the observable.
+    pat = np.zeros((N, 18))
+    pat[:, 1] = P16[:, 0]                                    # T1_11 <- i T11
+    pat[:, 2] = -P16[:, 2]; pat[:, 3] = P16[:, 1]            # T1_00 <- i T00
+    pat[:, 4] = -P16[:, 4]; pat[:, 5] = P16[:, 3]            # T1_01 <- i T01
+    pat[:, 6] = -P16[:, 6]; pat[:, 7] = P16[:, 5]            # T1_10 <- i T10
+    pat[:, 8] = -P16[:, 8]; pat[:, 9] = P16[:, 7]            # T1_1m1 <- i T1m1
+    pat[:, 11] = P16[:, 9]                                   # U1_11 <- i U11
+    pat[:, 12] = -P16[:, 11]; pat[:, 13] = P16[:, 10]        # U1_01 <- i U01
+    pat[:, 14] = -P16[:, 13]; pat[:, 15] = P16[:, 12]        # U1_10 <- i U10
+    pat[:, 16] = -P16[:, 15]; pat[:, 17] = P16[:, 14]        # U1_1m1 <- i U1m1
+    return k * pat
+
+
 def sample_meson_mass(rng, n, M0, Gamma, mh):
     """Draw n meson invariant masses from a relativistic Breit-Wigner with a mass-dependent
     P-wave width (V -> h+h-, L=1). Handles both the broad rho0 and the narrow, KK-threshold-
@@ -271,8 +317,21 @@ def throw(E, n_pool, rng, MV, GV, MH):
     kp, prot, Hp, Hm = _rotz(kp), _rotz(prot), _rotz(Hp), _rotz(Hm)
     hsign = rng.choice([-1.0, 1.0], N) if BEAM_POL > 0 else np.zeros(N)  # per-event beam helicity: +1/-1 (0 if unpol.)
     heli = BEAM_POL * hsign                                              # W uses (polarization degree) x (sign)
-    u = amp_to_u28_batch(amps_to_params(Q2, xB, -t)); ud = {nm: u[:, i] for i, nm in enumerate(UNAMES)}
-    Wp = np.nan_to_num(np.clip(W_ang(CosTh, Phi, phipr, eps, heli, ud), 0, None))   # |amplitude|^2 x W_SW(Omega)
+    P16 = amps_to_params(Q2, xB, -t)
+    if MODE == "A":                                          # historical path, bit-identical
+        u = amp_to_u28_batch(P16); ud = {nm: u[:, i] for i, nm in enumerate(UNAMES)}
+        Wp = np.nan_to_num(np.clip(W_ang(CosTh, Phi, phipr, eps, heli, ud), 0, None))
+        tspin = np.zeros(N)
+    else:                                                    # polarized target (Mode B/C)
+        fl = None
+        if "user_amplitudes_flip" in globals():
+            fl = np.asarray(user_amplitudes_flip(Q2, xB, -t), dtype=float)
+        A34 = np.concatenate([P16, fl if fl is not None else flip_params(P16, tprime)], 1)
+        tspin = rng.choice([-1.0, 1.0], N)                   # balanced states = equal luminosity
+        S_L = tspin * TARGET_PT if MODE == "B" else 0.0
+        S_T = tspin * TARGET_PT if MODE == "C" else 0.0
+        Wp = np.nan_to_num(np.clip(W_full(CosTh, Phi, phipr, eps, heli, A34,
+                                          S_L, S_T, PHI_S), 0, None))
     if WEIGHT == "toy":
         wt = cross_section(Q2, xB, tprime)                      # legacy smooth toy shape
     elif WEIGHT == "flux":
@@ -296,7 +355,7 @@ def throw(E, n_pool, rng, MV, GV, MH):
     wphys = np.nan_to_num(wt*Wp)
     return dict(Q2=Q2, xB=xB, nu=nu, W=Wm, tprime=tprime, absT=-t, tmin=-tmin, eps=eps,
                 CosTh=CosTh, phi=Phi, Phi=phipr, e=kp, p=prot, hp=Hp, hm=Hm, wphys=wphys,
-                Ebeam=np.full(len(Q2), E), hsign=hsign, mV=mv)
+                Ebeam=np.full(len(Q2), E), hsign=hsign, mV=mv, tspin=tspin)
 
 
 def generate(E, n_target, MV, GV, MH, rng, wmax=None):
@@ -305,7 +364,8 @@ def generate(E, n_target, MV, GV, MH, rng, wmax=None):
     Otherwise: accept-reject on wphys -> n_target unweighted events.  wmax overrides the accept-reject
     threshold with a COMMON value (so multi-energy relative yields are preserved -- see generate_multi)."""
     keep = {k: [] for k in ("Q2", "xB", "nu", "W", "tprime", "absT", "tmin", "eps",
-                            "CosTh", "phi", "Phi", "e", "p", "hp", "hm", "Ebeam", "hsign", "mV", "wphys")}
+                            "CosTh", "phi", "Phi", "e", "p", "hp", "hm", "Ebeam", "hsign", "mV",
+                            "wphys", "tspin")}
     have = 0
     while have < n_target:
         d = throw(E, max(200000, 4*(n_target - have)), rng, MV, GV, MH)
@@ -388,7 +448,8 @@ def write_lund(ev, meta, outdir, base):
                              f"{ev['CosTh'][i]:.5g} {ev['phi'][i]:.5g} {ev['Phi'][i]:.5g} {ev['eps'][i]:.5g}")
                 if LUND_TRUTH:
                     extra += " " + " ".join(f"{a:.5g}" for a in Apar[i])
-                f.write(f"4 1 1 0 {int(ev['hsign'][i])} {LEP_PID} {ev['Ebeam'][i]:.4f} 2212 0 {wt[i]:.6g}{extra}\n")
+                tp = ev["tspin"][i] * TARGET_PT if (MODE != "A" and "tspin" in ev) else 0
+                f.write(f"4 1 1 {tp:.3g} {int(ev['hsign'][i])} {LEP_PID} {ev['Ebeam'][i]:.4f} 2212 0 {wt[i]:.6g}{extra}\n")
                 for j, (pid, p4, mass) in enumerate(parts, start=1):
                     f.write(f"{j} 0 1 {pid} 0 0 {p4[i,1]:.6f} {p4[i,2]:.6f} {p4[i,3]:.6f} "
                             f"{p4[i,0]:.6f} {mass:.6f} 0 0 0\n")
