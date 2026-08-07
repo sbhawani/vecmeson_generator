@@ -39,6 +39,8 @@ _OPTIONS = {  # name -> one-line help, for --help
     "FLIPSCALE": "MODE=C demo nucleon-flip block: flip = FLIPSCALE*sqrt(t')/M x non-flip pattern (default 0; user_amplitudes_flip overrides)",
     "LUMI": "relative beam luminosities for MULTI, e.g. 2,1,1",
     "WEIGHTED": "keep all flat events with physics weight in Lund field 10: 1 | 0",
+    "LUND_WPHYS": "append the per-event physics weight wphys = sigma(Q2,xB,t')*W(Omega) as a"
+                  " trailing header column: 1 | 0 (default 1)",
 }
 if "--help" in sys.argv or "-h" in sys.argv:
     print("Usage: python generate_events.py [KEY=VALUE ...] [--multi-energy]\n\n"
@@ -131,6 +133,11 @@ WEIGHTED = os.environ.get("WEIGHTED", "0") not in ("0", "", "false", "False")  #
 #                  blind (amplitudes not written at all).
 LUND_TRUTH = os.environ.get("LUND_TRUTH", "1") not in ("0", "", "false", "False")
 LUND_KIN = LUND_TRUTH or os.environ.get("LUND_KIN", "0") not in ("0", "", "false", "False")
+# Per-event physics weight as a trailing header column. Present in BOTH modes: with
+# WEIGHTED=0 the events are accept-reject distributed and Lund field 10 is forced to 1.0,
+# so the weight is otherwise discarded at write time and the absolute normalisation is
+# lost -- which is exactly what the sigma_L/sigma_T separation needs.
+LUND_WPHYS = os.environ.get("LUND_WPHYS", "1") not in ("0", "", "false", "False")
 # Kinematic sampling windows (FLAT sampling; the physics shape comes from the weight). Defaults match
 # the extraction's trained forward model -- for the blind test keep the defaults; override via env for
 # other studies:  Q2MIN Q2MAX [GeV^2],  XBMIN XBMAX,  TMAX = flat t' upper bound [GeV^2].
@@ -424,6 +431,7 @@ def generate_multi(energies, meta, rng, lumis, n_events):
 # extra per-event header columns appended after the 10 standard Lund fields.
 # Standard Lund parsers read the first 10 fields and ignore the rest.
 LUND_KIN_COLS = ["Q2", "abs_t", "xB", "W", "CosTheta_decay", "phi_decay", "Phi_Trento", "eps"]
+LUND_WPHYS_COLS = ["wphys"]          # sigma(Q2,xB,t') * W(Omega); see LUND_WPHYS
 LUND_AMP_COLS = ["T11", "ReT00", "ImT00", "ReT01", "ImT01", "ReT10", "ImT10", "ReT1m1", "ImT1m1",
                  "U11", "ReU01", "ImU01", "ReU10", "ImU10", "ReU1m1", "ImU1m1"]
 
@@ -440,12 +448,17 @@ def write_lund(ev, meta, outdir, base):
                       (reconstructable from the 4-vectors -- blind-safe).
       LUND_TRUTH=1 -> ALSO cols 19..34: the 16 TRUTH amplitude components at (Q2,|t|)
                       (reveals the hidden amplitudes -- YOUR validation only).
+      LUND_WPHYS=1 -> ALSO a trailing column: wphys = sigma(Q2,xB,t')*W(Omega), the
+                      per-event physics weight (default ON). Written in BOTH modes; with
+                      WEIGHTED=0, Lund field 10 is 1.0 and this is the only place the
+                      absolute rate survives.
     A companion <base>_columns.txt documents the column order."""
     parts = [(LEP_PID, ev["e"], M_LEP), (2212, ev["p"], M),
              (meta["pid_hp"], ev["hp"], meta["MH"]), (meta["pid_hm"], ev["hm"], meta["MH"])]
     n = len(ev["Q2"]); nfiles = int(np.ceil(n / EVENTS_PER_FILE))
     Apar = amps_to_params(ev["Q2"], ev["xB"], ev["absT"]) if LUND_TRUTH else None    # truth amplitudes only if requested
-    extra_cols = (LUND_KIN_COLS if LUND_KIN else []) + (LUND_AMP_COLS if LUND_TRUTH else [])
+    extra_cols = ((LUND_KIN_COLS if LUND_KIN else []) + (LUND_AMP_COLS if LUND_TRUTH else [])
+                  + (LUND_WPHYS_COLS if LUND_WPHYS else []))
     with open(os.path.join(outdir, f"{base}_columns.txt"), "w") as fc:
         std = ["nparticles", "A", "Z", "target_pol", "beam_helicity", "beam_type", "E_beam",
                "target_pid", "process_id", "weight_wphys"]
@@ -465,6 +478,8 @@ def write_lund(ev, meta, outdir, base):
                              f"{ev['CosTh'][i]:.5g} {ev['phi'][i]:.5g} {ev['Phi'][i]:.5g} {ev['eps'][i]:.5g}")
                 if LUND_TRUTH:
                     extra += " " + " ".join(f"{a:.5g}" for a in Apar[i])
+                if LUND_WPHYS:
+                    extra += f" {ev['wphys'][i]:.6g}"
                 tp = ev["tspin"][i] * TARGET_PT if (MODE != "A" and "tspin" in ev) else 0
                 f.write(f"4 1 1 {tp:.3g} {int(ev['hsign'][i])} {LEP_PID} {ev['Ebeam'][i]:.4f} 2212 0 {wt[i]:.6g}{extra}\n")
                 for j, (pid, p4, mass) in enumerate(parts, start=1):
