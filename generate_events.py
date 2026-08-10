@@ -124,7 +124,12 @@ BW_MASS = os.environ.get("BW", "1") not in ("0", "", "false", "False")   # sampl
 #   hand : x the Hand flux ~ (1-y)K/(Q^2(1-eps)) -- DEPRECATED, inconsistent with the Diehl W
 #   toy  : x a smooth legacy toy cross section
 WEIGHT = os.environ.get("WEIGHT", "flux")
-WEIGHTED = os.environ.get("WEIGHTED", "0") not in ("0", "", "false", "False")  # physical-yield (weighted) events
+# DEFAULT CHANGED 2026-08-10: WEIGHTED=1 (flat events with the physics weight in Lund
+# field 10). The accept-reject default silently produced blind samples whose absolute
+# sigma_T/sigma_L scale is NOT recoverable (the wphys column is informational there and
+# using it as a weight double-counts the physics). Set WEIGHTED=0 explicitly only if you
+# want unweighted events and do not need the absolute scale.
+WEIGHTED = os.environ.get("WEIGHTED", "1") not in ("0", "", "false", "False")  # physical-yield (weighted) events
 # Header columns beyond the 10 standard Lund fields:
 #   LUND_KIN=1   -> +8 kinematics (Q2,|t|,xB,W,cos_theta,phi,Phi,eps), blind-safe (reconstructable).
 #   LUND_TRUTH=1 -> +16 TRUTH amplitude values (T,U re/im).  DEFAULT ON: the truth travels sealed in
