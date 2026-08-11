@@ -503,7 +503,9 @@ def write_lund(ev, meta, outdir, base):
                 if LUND_WPHYS:
                     nt, sw = ev.get("_norm", (0, 0.0))
                     sbar = sw / max(nt, 1)
-                    extra += f" {ev['wphys'][i]:.6g} {sbar:.8g} {nt}"
+                    _mc = {"A": 0, "B": 1, "C": 2}.get(MODE, 0)
+                    extra += (f" {ev['wphys'][i]:.6g} {sbar:.8g} {nt}"
+                              f" {BEAM_POL:.4g} {PHI_S:.6g} {_mc}")
                 tp = ev["tspin"][i] * TARGET_PT if (MODE != "A" and "tspin" in ev) else 0
                 f.write(f"4 1 1 {tp:.3g} {int(ev['hsign'][i])} {LEP_PID} {ev['Ebeam'][i]:.4f} 2212 0 {wt[i]:.6g}{extra}\n")
                 for j, (pid, p4, mass) in enumerate(parts, start=1):
