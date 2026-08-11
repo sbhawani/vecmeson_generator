@@ -443,7 +443,11 @@ def generate_multi(energies, meta, rng, lumis, n_events):
 # extra per-event header columns appended after the 10 standard Lund fields.
 # Standard Lund parsers read the first 10 fields and ignore the rest.
 LUND_KIN_COLS = ["Q2", "abs_t", "xB", "W", "CosTheta_decay", "phi_decay", "Phi_Trento", "eps"]
-LUND_WPHYS_COLS = ["wphys"]          # sigma(Q2,xB,t') * W(Omega); see LUND_WPHYS
+LUND_WPHYS_COLS = ["wphys", "sigma_bar_box", "n_thrown"]  # per-event sigma*W, then TWO
+# CONSTANT columns repeating the run normalization in every event header, so each file is
+# self-contained: sigma_bar_box = sum(wphys)/n over ALL thrown candidates (flat-box mean
+# of Gamma*W), n_thrown = candidates thrown. These carry the sigma-INTEGRAL that
+# accept-reject events otherwise lose (see WEIGHTED comment).
 LUND_AMP_COLS = ["T11", "ReT00", "ImT00", "ReT01", "ImT01", "ReT10", "ImT10", "ReT1m1", "ImT1m1",
                  "U11", "ReU01", "ImU01", "ReU10", "ImU10", "ReU1m1", "ImU1m1"]
 
@@ -497,7 +501,9 @@ def write_lund(ev, meta, outdir, base):
                 if LUND_TRUTH:
                     extra += " " + " ".join(f"{a:.5g}" for a in Apar[i])
                 if LUND_WPHYS:
-                    extra += f" {ev['wphys'][i]:.6g}"
+                    nt, sw = ev.get("_norm", (0, 0.0))
+                    sbar = sw / max(nt, 1)
+                    extra += f" {ev['wphys'][i]:.6g} {sbar:.8g} {nt}"
                 tp = ev["tspin"][i] * TARGET_PT if (MODE != "A" and "tspin" in ev) else 0
                 f.write(f"4 1 1 {tp:.3g} {int(ev['hsign'][i])} {LEP_PID} {ev['Ebeam'][i]:.4f} 2212 0 {wt[i]:.6g}{extra}\n")
                 for j, (pid, p4, mass) in enumerate(parts, start=1):
