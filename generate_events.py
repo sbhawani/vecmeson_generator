@@ -124,12 +124,14 @@ BW_MASS = os.environ.get("BW", "1") not in ("0", "", "false", "False")   # sampl
 #   hand : x the Hand flux ~ (1-y)K/(Q^2(1-eps)) -- DEPRECATED, inconsistent with the Diehl W
 #   toy  : x a smooth legacy toy cross section
 WEIGHT = os.environ.get("WEIGHT", "flux")
-# DEFAULT CHANGED 2026-08-10: WEIGHTED=1 (flat events with the physics weight in Lund
-# field 10). The accept-reject default silently produced blind samples whose absolute
-# sigma_T/sigma_L scale is NOT recoverable (the wphys column is informational there and
-# using it as a weight double-counts the physics). Set WEIGHTED=0 explicitly only if you
-# want unweighted events and do not need the absolute scale.
-WEIGHTED = os.environ.get("WEIGHTED", "1") not in ("0", "", "false", "False")  # physical-yield (weighted) events
+# WEIGHTED=0 (default): accept-reject -> every LUND event is a physical event, as GEMC
+# and reconstruction-level comparisons require. The absolute normalization of such a
+# sample is recorded in the companion <base>_columns.txt (n_thrown, sum wphys ->
+# sigma_bar of the sampled box) -- read THAT for the sigma_L/T rate normalization;
+# do NOT use the per-event wphys column as a weight (events are already W-distributed).
+# WEIGHTED=1: keep all flat events with wphys in Lund field 10 -- for direct
+# extraction-level studies that consume weighted events.
+WEIGHTED = os.environ.get("WEIGHTED", "0") not in ("0", "", "false", "False")  # physical-yield (weighted) events
 # Header columns beyond the 10 standard Lund fields:
 #   LUND_KIN=1   -> +8 kinematics (Q2,|t|,xB,W,cos_theta,phi,Phi,eps), blind-safe (reconstructable).
 #   LUND_TRUTH=1 -> +16 TRUTH amplitude values (T,U re/im).  DEFAULT ON: the truth travels sealed in
@@ -396,8 +398,12 @@ def generate(E, n_target, MV, GV, MH, rng, wmax=None):
                             "CosTh", "phi", "Phi", "e", "p", "hp", "hm", "Ebeam", "hsign", "mV",
                             "wphys", "tspin")}
     have = 0
-    while have < n_target:
-        d = throw(E, max(200000, 4*(n_target - have)), rng, MV, GV, MH)
+    n_thrown = 0; sum_w = 0.0        # absolute-normalization bookkeeping (free: every thrown
+    while have < n_target:           # candidate's wphys is computed anyway); sigma_bar of the
+        n_ask = max(200000, 4*(n_target - have))   # sampled box = sum_w / n_thrown.
+        d = throw(E, n_ask, rng, MV, GV, MH)
+        n_thrown += n_ask
+        sum_w += float(np.nansum(d["wphys"]))
         if WEIGHTED:
             acc = np.ones(len(d["wphys"]), bool)                # keep all (flat, weighted)
         else:
@@ -407,6 +413,7 @@ def generate(E, n_target, MV, GV, MH, rng, wmax=None):
         have += int(acc.sum())
         print(f"  ... {have}/{n_target}", flush=True)
     ev = {k: np.concatenate(v)[:n_target] for k, v in keep.items()}
+    ev["_norm"] = (n_thrown, sum_w)
     return ev
 
 
@@ -471,6 +478,12 @@ def write_lund(ev, meta, outdir, base):
         fc.write(f"Lund header columns (1-indexed){tag}:\n")
         for c, name in enumerate(std + extra_cols, 1):
             fc.write(f"  {c:2d}  {name}\n")
+        if "_norm" in ev:
+            nt, sw = ev["_norm"]
+            fc.write("# absolute normalization of this sample (accept-reject bookkeeping):\n")
+            fc.write(f"# n_thrown = {nt}\n# sum_wphys_thrown = {sw:.8g}\n")
+            fc.write(f"# sigma_bar_box = sum/n = {sw/max(nt,1):.8g}  "
+                     "(flat-box mean of Gamma*W; relative luminosity L(E) = n_kept/sigma_bar)\n")
     for fi in range(nfiles):
         lo, hi = fi*EVENTS_PER_FILE, min((fi+1)*EVENTS_PER_FILE, n)
         with open(os.path.join(outdir, f"{base}_{fi}.lund"), "w") as f:
