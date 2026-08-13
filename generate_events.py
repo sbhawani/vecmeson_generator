@@ -399,8 +399,9 @@ def generate(E, n_target, MV, GV, MH, rng, wmax=None):
                             "wphys", "tspin")}
     have = 0
     n_thrown = 0; sum_w = 0.0        # absolute-normalization bookkeeping (free: every thrown
-    while have < n_target:           # candidate's wphys is computed anyway); sigma_bar of the
-        n_ask = max(200000, 4*(n_target - have))   # sampled box = sum_w / n_thrown.
+    wm_used = []                     # candidate's wphys is computed anyway); sigma_bar of the
+    while have < n_target:           # sampled box = sum_w / n_thrown.
+        n_ask = max(200000, 4*(n_target - have))
         d = throw(E, n_ask, rng, MV, GV, MH)
         n_thrown += n_ask
         sum_w += float(np.nansum(d["wphys"]))
@@ -408,12 +409,26 @@ def generate(E, n_target, MV, GV, MH, rng, wmax=None):
             acc = np.ones(len(d["wphys"]), bool)                # keep all (flat, weighted)
         else:
             Wm = wmax if wmax is not None else np.percentile(d["wphys"], 99.9)
+            wm_used.append(float(Wm))
             acc = rng.uniform(0, Wm, len(d["wphys"])) < d["wphys"]
         for k in keep: keep[k].append(d[k][acc])
         have += int(acc.sum())
         print(f"  ... {have}/{n_target}", flush=True)
     ev = {k: np.concatenate(v)[:n_target] for k, v in keep.items()}
-    ev["_norm"] = (n_thrown, sum_w)
+    # ABSOLUTE normalization needs the accept-reject THRESHOLD, not just sigma_bar. With
+    # n_kept = n_thrown * <wphys>/wmax, the luminosity that yields n_kept events for the box
+    # cross-section sigma = sigma_bar * V_box is
+    #       L = n_kept / (sigma_bar * V_box) = n_thrown / (wmax * V_box)
+    # so WITHOUT wmax the recoverable L is only RELATIVE -- which is exactly what blocked
+    # putting an accept-reject sample on an absolute scale downstream.
+    _wm = float(np.mean(wm_used)) if wm_used else float("nan")
+    if wm_used and (max(wm_used) - min(wm_used)) > 1e-12 * max(wm_used):
+        # a per-chunk threshold makes the kept sample a MIXTURE of accept-reject passes with
+        # different normalizations; report it rather than average it away silently
+        print(f"  [warn] accept-reject threshold varied across chunks "
+              f"({min(wm_used):.6g}..{max(wm_used):.6g}); absolute normalization uses the mean "
+              f"and is approximate. Pass a common wmax to make it exact.", flush=True)
+    ev["_norm"] = (n_thrown, sum_w, _wm)
     return ev
 
 
@@ -483,11 +498,40 @@ def write_lund(ev, meta, outdir, base):
         for c, name in enumerate(std + extra_cols, 1):
             fc.write(f"  {c:2d}  {name}\n")
         if "_norm" in ev:
-            nt, sw = ev["_norm"]
+            nt, sw, wm = (list(ev["_norm"]) + [float("nan")])[:3]
+            _sbar = sw / max(nt, 1)
             fc.write("# absolute normalization of this sample (accept-reject bookkeeping):\n")
             fc.write(f"# n_thrown = {nt}\n# sum_wphys_thrown = {sw:.8g}\n")
-            fc.write(f"# sigma_bar_box = sum/n = {sw/max(nt,1):.8g}  "
-                     "(flat-box mean of Gamma*W; relative luminosity L(E) = n_kept/sigma_bar)\n")
+            fc.write(f"# sigma_bar_box = sum/n = {_sbar:.8g}  "
+                     "(flat-box mean of Gamma*W)\n")
+            # THE ACCEPT-REJECT THRESHOLD. Without it only a RELATIVE luminosity is
+            # recoverable (n_kept/sigma_bar), which is not enough to put an accept-reject
+            # sample on an ABSOLUTE scale: n_kept = n_thrown*<wphys>/wmax, so
+            #     L = n_kept/(sigma_bar*V_box) = n_thrown/(wmax*V_box).
+            # With wmax and the box bounds below, L is absolute and the sample can be
+            # normalized exactly as measured data is.
+            fc.write(f"# wmax_accept_reject = {wm:.8g}"
+                     f"{'  (WEIGHTED=1: no accept-reject applied)' if WEIGHTED else ''}\n")
+            fc.write(f"# n_kept = {n}\n")
+            fc.write(f"# accept_fraction_written = {n/max(nt,1):.8g}"
+                     "  (n_kept is TRUNCATED to the requested N -- this is NOT the accept"
+                     " probability)\n")
+            fc.write(f"# accept_probability = {_sbar/wm if wm==wm and wm>0 else float('nan'):.8g}"
+                     "  (= sigma_bar/wmax, the true accept-reject efficiency)\n")
+            fc.write(f"# box_Q2 = {Q2MIN:.6g} {Q2MAX:.6g}\n")
+            fc.write(f"# box_xB = {XBMIN:.6g} {XBMAX:.6g}\n")
+            fc.write(f"# box_tprime_max = {TMAX:.6g}\n")
+            # USE THIS ONE. n_kept is truncated to the requested N, so the thrown count that
+            # actually corresponds to the WRITTEN sample is n_kept/accept_probability, and
+            #     L = n_kept / (sigma_bar * V_box)
+            # which is truncation-safe. n_thrown/(wmax*V_box) describes the sample BEFORE
+            # truncation and is larger by exactly n_thrown*accept_probability/n_kept.
+            fc.write("# ABSOLUTE luminosity of the WRITTEN sample:"
+                     "  L = n_kept / (sigma_bar_box * V_box)\n")
+            fc.write(f"#   V_box = dQ2 * dxB * tprime_max = {(Q2MAX-Q2MIN)*(XBMAX-XBMIN)*TMAX:.8g}\n")
+            fc.write(f"#   L = {n/max(_sbar*(Q2MAX-Q2MIN)*(XBMAX-XBMIN)*TMAX, 1e-300):.8g}\n")
+            fc.write("#   (n_thrown/(wmax*V_box) describes the pre-truncation sample and is"
+                     " NOT the right normalization for these events)\n")
     for fi in range(nfiles):
         lo, hi = fi*EVENTS_PER_FILE, min((fi+1)*EVENTS_PER_FILE, n)
         with open(os.path.join(outdir, f"{base}_{fi}.lund"), "w") as f:
@@ -501,7 +545,7 @@ def write_lund(ev, meta, outdir, base):
                 if LUND_TRUTH:
                     extra += " " + " ".join(f"{a:.5g}" for a in Apar[i])
                 if LUND_WPHYS:
-                    nt, sw = ev.get("_norm", (0, 0.0))
+                    nt, sw = ev.get("_norm", (0, 0.0, float("nan")))[:2]
                     sbar = sw / max(nt, 1)
                     _mc = {"A": 0, "B": 1, "C": 2}.get(MODE, 0)
                     extra += (f" {ev['wphys'][i]:.6g} {sbar:.8g} {nt}"
