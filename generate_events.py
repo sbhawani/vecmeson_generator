@@ -78,7 +78,7 @@ M_LEP = ME if BEAM == "e" else 0.1056584               # beam lepton mass [GeV]
 LEP_PID = 11 if BEAM == "e" else 13                    # PDG id of beam / scattered lepton
 N_EVENTS    = int(os.environ.get("N", "20000"))        # total events generated
 EVENTS_PER_FILE = int(os.environ.get("CHUNK", "5000")) # events per Lund file (GEMC limit); N/CHUNK files
-BEAM_POL    = float(os.environ.get("POL", "0.0"))      # beam helicity magnitude (0 = unpolarised)
+BEAM_POL    = float(os.environ.get("POL", "1.0"))      # beam helicity magnitude; default 1.0 = fully polarised beam (matches the extraction training convention CFG.generator.pol = 1.0); set POL=0 explicitly for an unpolarised beam
 # --- target polarization modes (mirror of the extraction's Mode A/B/C tiers) -----------------
 # MODE=A: bit-identical to the historical generator (W from diehl_w on the 16 non-flip params).
 # MODE=B: longitudinally polarized target, balanced spin states S_L = +-PT drawn per event
