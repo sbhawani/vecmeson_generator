@@ -458,7 +458,8 @@ def generate_multi(energies, meta, rng, lumis, n_events):
 # extra per-event header columns appended after the 10 standard Lund fields.
 # Standard Lund parsers read the first 10 fields and ignore the rest.
 LUND_KIN_COLS = ["Q2", "abs_t", "xB", "W", "CosTheta_decay", "phi_decay", "Phi_Trento", "eps"]
-LUND_WPHYS_COLS = ["wphys", "sigma_bar_box", "n_thrown"]  # per-event sigma*W, then TWO
+LUND_WPHYS_COLS = ["wphys", "sigma_bar_box", "n_thrown",
+                   "beam_pol", "phi_S", "mode"]  # per-event sigma*W, then TWO
 # CONSTANT columns repeating the run normalization in every event header, so each file is
 # self-contained: sigma_bar_box = sum(wphys)/n over ALL thrown candidates (flat-box mean
 # of Gamma*W), n_thrown = candidates thrown. These carry the sigma-INTEGRAL that
