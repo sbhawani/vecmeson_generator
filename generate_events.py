@@ -458,8 +458,15 @@ def generate_multi(energies, meta, rng, lumis, n_events):
 # extra per-event header columns appended after the 10 standard Lund fields.
 # Standard Lund parsers read the first 10 fields and ignore the rest.
 LUND_KIN_COLS = ["Q2", "abs_t", "xB", "W", "CosTheta_decay", "phi_decay", "Phi_Trento", "eps"]
+# The THROWN BOX travels per event too (cols 41-45). Downstream may receive ONLY the .lund
+# files -- the companion _columns.txt can be separated in transit -- and without the box the
+# absolute luminosity L = n_kept/(sigma_bar*V_box) is not computable, nor can the flat throw
+# be reproduced to get a bin's kinematically-open phase-space fraction. Assuming a box is
+# exactly the error that cost a 1.47x rate bias downstream (default XBMAX 0.5 vs actual 0.68).
 LUND_WPHYS_COLS = ["wphys", "sigma_bar_box", "n_thrown",
-                   "beam_pol", "phi_S", "mode"]  # per-event sigma*W, then TWO
+                   "beam_pol", "phi_S", "mode",
+                   "box_Q2_lo", "box_Q2_hi", "box_xB_lo", "box_xB_hi",
+                   "box_tprime_max"]  # per-event sigma*W, then TWO
 # CONSTANT columns repeating the run normalization in every event header, so each file is
 # self-contained: sigma_bar_box = sum(wphys)/n over ALL thrown candidates (flat-box mean
 # of Gamma*W), n_thrown = candidates thrown. These carry the sigma-INTEGRAL that
@@ -550,7 +557,8 @@ def write_lund(ev, meta, outdir, base):
                     sbar = sw / max(nt, 1)
                     _mc = {"A": 0, "B": 1, "C": 2}.get(MODE, 0)
                     extra += (f" {ev['wphys'][i]:.6g} {sbar:.8g} {nt}"
-                              f" {BEAM_POL:.4g} {PHI_S:.6g} {_mc}")
+                              f" {BEAM_POL:.4g} {PHI_S:.6g} {_mc}"
+                              f" {Q2MIN:.6g} {Q2MAX:.6g} {XBMIN:.6g} {XBMAX:.6g} {TMAX:.6g}")
                 tp = ev["tspin"][i] * TARGET_PT if (MODE != "A" and "tspin" in ev) else 0
                 f.write(f"4 1 1 {tp:.3g} {int(ev['hsign'][i])} {LEP_PID} {ev['Ebeam'][i]:.4f} 2212 0 {wt[i]:.6g}{extra}\n")
                 for j, (pid, p4, mass) in enumerate(parts, start=1):
