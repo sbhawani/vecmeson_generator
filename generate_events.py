@@ -27,6 +27,8 @@ _OPTIONS = {  # name -> one-line help, for --help
     "BEAM": "lepton beam: e | mu", "WEIGHT": "yield weight: flux | amp | vpk | hand | toy",
     "Q2MIN": "Q^2 lower [GeV^2]", "Q2MAX": "Q^2 upper [GeV^2]", "XBMIN": "x_B lower",
     "XBMAX": "x_B upper", "TMAX": "flat t' upper bound [GeV^2]", "POL": "beam helicity magnitude",
+    "MMAX": "upper edge of the BW mass window [GeV]; 0 = use NWIDTHS rule",
+    "NWIDTHS": "BW mass window = M0 + NWIDTHS*Gamma (default 8; rho0 -> 1.968 GeV)",
     "BW": "sample Breit-Wigner lineshape: 1 | 0", "CHUNK": "events per Lund file",
     "AMP_FILE": "path to a file defining user_amplitudes(Q2, xB, t)",
     "SEED": "random seed (int); omit for a fresh seed (different events) each run",
@@ -151,6 +153,31 @@ LUND_WPHYS = os.environ.get("LUND_WPHYS", "1") not in ("0", "", "false", "False"
 Q2MIN = float(os.environ.get("Q2MIN", "1.0")); Q2MAX = float(os.environ.get("Q2MAX", "6.0"))
 XBMIN = float(os.environ.get("XBMIN", "0.08")); XBMAX = float(os.environ.get("XBMAX", "0.5"))
 TMAX = float(os.environ.get("TMAX", "4.0"))
+# Breit-Wigner mass-window controls (2026-08-28, raised by Harut).  The upper edge of the
+# BW accept-reject window was a hard-coded M0 + 8*Gamma.  For the rho0 that is
+# 0.77526 + 8*0.14910 = 1.968 GeV -- an invisible ~2 GeV ceiling on M(pipi): masses above it
+# are not rejected, they are never sampled.  The same rule on the narrow phi gives 1.053 GeV,
+# which is why it never showed up there (8 widths of a 4 MeV state is 34 MeV).
+#
+# The window does NOT depend on beam energy, but the later W2 > (M+mv)^2 rejection does, so
+# the edge only becomes visible as the beam energy rises: the fraction of events whose W
+# could support a mass above 1.968 GeV is 8% at 6.5 GeV, 19% at 7.5, and 38% at 10.6.  Below
+# that the physical threshold cuts first and the falloff looks smooth; above it, events pile
+# up against a fixed wall.
+#
+# Defaults below reproduce the previous behaviour EXACTLY (edges 1.9681 rho0 / 1.0535 phi),
+# so existing samples are unaffected.  The kinematic cap W_max - M_p is always applied on the
+# NWIDTHS path -- free, since anything above it is rejected by the W2 cut regardless.
+#   MMAX=<GeV>   hard upper edge
+#   NWIDTHS=<n>  window = M0 + n*Gamma  (8 = current; 15 -> 3.01 GeV, physics-limited at 10.6)
+# NOTE vpK uses min(W - Mp, M0 + 5*Gamma) = 1.521 GeV for the rho0 (ISSUES #(iv)) -- NARROWER
+# than ours, so matching vpK would shorten the rho0 tail, not lengthen it.
+MFRAC   = float(os.environ.get("MFRAC", "0"))      # >0: retain this fraction of the lineshape
+                                                   #     (OFF by default: BW tails fall as m^-4, so a
+                                                   #      99% target runs away for narrow states --
+                                                   #      measured 0.7% sampling efficiency for the phi)
+NWIDTHS = float(os.environ.get("NWIDTHS", "8.0"))  # fallback rule: M0 + NWIDTHS*Gamma
+MMAX    = float(os.environ.get("MMAX", "0"))       # >0: hard override of the upper edge [GeV]
 
 # --- Helicity amplitudes as functions of (Q^2, |t|).  EDIT THESE. ------------
 # Conventions (unpolarised nucleon-helicity non-flip):
@@ -264,19 +291,41 @@ def flip_params(P16, tprime):
     return k * pat
 
 
+def _kin_mass_ceiling():
+    """Largest meson mass the beam can produce: W_max - M_p, taken at the most favourable
+    corner of the box (y -> 0.99, Q2 -> Q2MIN) and at the highest beam energy in use."""
+    E_hi = max(MULTI_ENERGIES) if MULTI else BEAM_ENERGY
+    W2 = M*M + 2.0*M*(0.99*E_hi) - Q2MIN
+    return max(np.sqrt(max(W2, 0.0)) - M, 0.0)
+
+
+def _mass_window(M0, Gamma, mh, intensity):
+    """Upper edge of the BW window retaining MFRAC of the lineshape, capped kinematically."""
+    m_lo = 2.0*mh + 1e-4
+    if MMAX > 0:
+        return m_lo, max(MMAX, m_lo + 1e-3)
+    m_cap = max(_kin_mass_ceiling(), m_lo + 1e-3)
+    if MFRAC <= 0:
+        return m_lo, max(min(M0 + NWIDTHS*Gamma, m_cap), m_lo + 1e-3)
+    grid = np.linspace(m_lo, m_cap, 20000)
+    cdf = np.cumsum(intensity(grid)); cdf /= cdf[-1]
+    m_hi = float(grid[np.searchsorted(cdf, min(MFRAC, 1.0))]) if cdf[-1] > 0 else m_cap
+    return m_lo, max(min(m_hi, m_cap), m_lo + 1e-3)
+
+
 def sample_meson_mass(rng, n, M0, Gamma, mh):
     """Draw n meson invariant masses from a relativistic Breit-Wigner with a mass-dependent
     P-wave width (V -> h+h-, L=1). Handles both the broad rho0 and the narrow, KK-threshold-
     skewed phi automatically. Gamma<=0 returns the fixed pole mass."""
     if Gamma <= 0 or not BW_MASS:
         return np.full(n, float(M0))
-    m_lo = 2.0*mh + 1e-4; m_hi = M0 + 8.0*Gamma
     p0 = np.sqrt(M0**2/4 - mh**2); R = 5.0                       # meson radius ~1 fm (GeV^-1)
     def intensity(m):
         p = np.sqrt(np.clip(m**2/4 - mh**2, 0.0, None))
         bw = (1.0 + (p0*R)**2)/(1.0 + (p*R)**2)                  # Blatt-Weisskopf L=1 barrier factor
         Gm = Gamma*(M0/m)*(p/p0)**3*bw                           # mass-dependent P-wave width
         return m**2 * M0 * Gm / ((m**2 - M0**2)**2 + M0**2 * Gm**2)
+    m_lo, m_hi = _mass_window(M0, Gamma, mh, intensity)
     Imax = 1.05*intensity(np.linspace(m_lo, m_hi, 4000)).max()
     out = np.empty(n); filled = 0
     while filled < n:
