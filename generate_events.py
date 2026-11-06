@@ -27,7 +27,8 @@ _OPTIONS = {  # name -> one-line help, for --help
     "BEAM": "lepton beam: e | mu", "WEIGHT": "yield weight: flux | amp | vpk | hand | toy",
     "Q2MIN": "Q^2 lower [GeV^2]", "Q2MAX": "Q^2 upper [GeV^2]", "XBMIN": "x_B lower",
     "XBMAX": "x_B upper", "TMAX": "flat t' upper bound [GeV^2]", "WMIN": "minimum W [GeV] (0 = only the kinematic threshold)",
-    "TMIN": "minimum -t = |t| [GeV^2] (t < 0; 0 = only the kinematic t_min)", "POL": "beam helicity magnitude",
+    "TMIN": "minimum -t = |t| [GeV^2] (t < 0; 0 = only the kinematic t_min)",
+    "WMAX": "maximum W [GeV] (0 = no cut)", "ABSTMAX": "maximum -t = |t| [GeV^2] (0 = no cut; TMAX bounds t' instead)", "POL": "beam helicity magnitude",
     "MMAX": "upper edge of the BW mass window [GeV]; 0 = use NWIDTHS rule",
     "NWIDTHS": "BW mass window = M0 + NWIDTHS*Gamma (default 8; rho0 -> 1.968 GeV)",
     "BW": "sample Breit-Wigner lineshape: 1 | 0", "CHUNK": "events per Lund file",
@@ -85,17 +86,32 @@ if TUNED:
         sys.exit("[tuned] --tuned_to_data and AMP_FILE both given; use one")
     os.environ["AMP_FILE"] = os.path.join(_td, "amps.py")
     _tj = _json.load(open(os.path.join(_td, "tuned.json")))
-    for _k, _v in _tj["defaults"].items():
+    # windows: common minima ("defaults") + per-beam upper edges from the data ("defaults_by_beam", nearest beam;
+    # multi-energy: the widest over the beams). Anything given on the command line / environment wins.
+    _dfl = dict(_tj["defaults"]); _bb = _tj.get("defaults_by_beam", {})
+    if _bb:
+        if ("--multi-energy" in sys.argv) or os.environ.get("MULTI", "0") not in ("0", "", "false", "False"):
+            for _k in next(iter(_bb.values())):
+                _dfl[_k] = str(max(float(v[_k]) for v in _bb.values()))
+        else:
+            _E = float(os.environ.get("E", "10.6")); _kb = min(_bb, key=lambda e: abs(float(e) - _E))
+            if abs(float(_kb) - _E) > 0.05:
+                print(f"[tuned] E={_E:g}: no data-range entry for this beam, using the {_kb} GeV one", flush=True)
+            _dfl.update(_bb[_kb])
+    for _k, _v in _dfl.items():
         os.environ.setdefault(_k, _v)
-    _cv = _tj["coverage"]
+    _cv = _tj["coverage"]; _out = []
     for _k, _lo, _hi in (("Q2MIN", *_cv["Q2"]), ("Q2MAX", *_cv["Q2"]), ("XBMIN", *_cv["xB"]),
-                         ("XBMAX", *_cv["xB"]), ("TMAX", *_cv["abs_t"])):
-        if not (_lo - 1e-9 <= float(os.environ[_k]) <= _hi + 1e-9):
-            print(f"[tuned] WARNING: {_k}={os.environ[_k]} is outside the fitted range {_lo}..{_hi} "
-                  f"-> the amplitudes there are extrapolated", file=sys.stderr)
+                         ("XBMAX", *_cv["xB"]), ("ABSTMAX", *_cv["abs_t"])):
+        if _k in os.environ and not (_lo - 1e-9 <= float(os.environ[_k]) <= _hi + 1e-9):
+            _out.append(f"{_k}={os.environ[_k]}")
+    if _out:
+        print(f"[tuned] note: {', '.join(_out)} outside the fitted range (Q2 {_cv['Q2'][0]}-{_cv['Q2'][1]}, xB "
+              f"{_cv['xB'][0]}-{_cv['xB'][1]}, |t| < {_cv['abs_t'][1]}) -> amplitudes extrapolated there", flush=True)
     print(f"[tuned] MESON={_m}: data-tuned amplitudes from {_tj['source_run']}", flush=True)
     print(f"[tuned] windows Q2 {os.environ['Q2MIN']}..{os.environ['Q2MAX']}, xB {os.environ['XBMIN']}.."
-          f"{os.environ['XBMAX']}, W > {os.environ.get('WMIN', '0')}, -t > {os.environ.get('TMIN', '0')}, t' < {os.environ['TMAX']}", flush=True)
+          f"{os.environ['XBMAX']}, W {os.environ.get('WMIN', '0')}..{os.environ.get('WMAX', '-')}, -t {os.environ.get('TMIN', '0')}.."
+          f"{os.environ.get('ABSTMAX', '-')}, t' < {os.environ['TMAX']}", flush=True)
 
 import numpy as np
 import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
@@ -201,6 +217,8 @@ WMIN = float(os.environ.get("WMIN", "0"))
 # TMIN (2026-11-06): a lower cut on -t = |t| (t itself is negative; t = t_min - t' with t_min <= 0 the kinematic edge),
 # applied to the thrown candidates like WMIN; removed candidates count in n_thrown (normalisation unchanged).
 TMIN = float(os.environ.get("TMIN", "0"))
+WMAX = float(os.environ.get("WMAX", "0"))         # upper W cut [GeV], 0 = none (2026-11-06)
+ABSTMAX = float(os.environ.get("ABSTMAX", "0"))   # upper cut on -t = |t| [GeV^2], 0 = none; TMAX bounds t' (2026-11-06)
 # Breit-Wigner mass-window controls (2026-08-28, raised by Harut).  The upper edge of the
 # BW accept-reject window was a hard-coded M0 + 8*Gamma.  For the rho0 that is
 # 0.77526 + 8*0.14910 = 1.968 GeV -- an invisible ~2 GeV ceiling on M(pipi): masses above it
@@ -436,7 +454,7 @@ def throw(E, n_pool, rng, MV, GV, MH):
     nu = Q2/(2*M*xB); y = nu/E; W2 = M*M + 2*M*nu - Q2; Ep = E - nu
     cose = 1 - Q2/(2*E*np.clip(Ep, 1e-6, None))
     # FIXED(vpk-comp #7a): honour TMAX (was a hardcoded 'tprime < 4' that silently overrode TMAX>4).
-    ok = (y > 0) & (y < 0.99) & (W2 > (M+mv)**2) & (Ep > 0.3) & (np.abs(cose) < 1) & (tprime < TMAX) & (W2 > WMIN**2)
+    ok = (y > 0) & (y < 0.99) & (W2 > (M+mv)**2) & (Ep > 0.3) & (np.abs(cose) < 1) & (tprime < TMAX) & (W2 > WMIN**2) & ((WMAX <= 0) | (W2 < WMAX**2))
     Q2, xB, tprime, nu, y, W2, Ep, cose, mv = (v[ok] for v in (Q2, xB, tprime, nu, y, W2, Ep, cose, mv))
     Wm = np.sqrt(W2); gam = 2*M*xB/np.sqrt(Q2)
     eps = (1 - y - 0.25*gam**2*y**2)/(1 - y + 0.5*y**2 + 0.25*gam**2*y**2)
@@ -448,7 +466,7 @@ def throw(E, n_pool, rng, MV, GV, MH):
     pg = np.linalg.norm(qcm[:, 1:], axis=1); Eg = qcm[:, 0]
     Ephi = (W2 + mv**2 - M**2)/(2*Wm); pphi = np.sqrt(np.clip(Ephi**2 - mv**2, 0, None))
     tmin = -Q2 + mv**2 - 2*(Eg*Ephi - pg*pphi); t = tmin - tprime
-    cosst = (t + Q2 - mv**2 + 2*Eg*Ephi)/(2*pg*pphi); good = (np.abs(cosst) <= 1) & (-t > TMIN)
+    cosst = (t + Q2 - mv**2 + 2*Eg*Ephi)/(2*pg*pphi); good = (np.abs(cosst) <= 1) & (-t > TMIN) & ((ABSTMAX <= 0) | (-t < ABSTMAX))
     (Q2, xB, nu, y, Wm, eps, kp, q, Wsys, beta, qcm, pg, Eg, Ephi, pphi, tprime, t, tmin, cosst, mv) = (
         v[good] for v in (Q2, xB, nu, y, Wm, eps, kp, q, Wsys, beta, qcm, pg, Eg, Ephi, pphi,
                           tprime, t, tmin, cosst, mv))
@@ -681,6 +699,7 @@ def write_lund(ev, meta, outdir, base):
             fc.write(f"# box_tprime_max = {TMAX:.6g}\n")
             fc.write(f"# W_min = {WMIN:.6g}  (cut on the thrown candidates; 0 = none)\n")
             fc.write(f"# abs_t_min = {TMIN:.6g}  (cut -t > abs_t_min on the thrown candidates; 0 = none)\n")
+            fc.write(f"# W_max = {WMAX:.6g}, abs_t_max = {ABSTMAX:.6g}  (upper cuts on the thrown candidates; 0 = none)\n")
             # USE THIS ONE. n_kept is truncated to the requested N, so the thrown count that
             # actually corresponds to the WRITTEN sample is n_kept/accept_probability, and
             #     L = n_kept / (sigma_bar * V_box)

@@ -4,7 +4,49 @@
   "source_run": "vecmeson_extraction outputs/rho_gencheck_fmc_sw_q08_sp_hn2 (config_rho_fmc_sw_q08_sp_hn2.json), 2026-11-05",
   "content": "51 (Q2, xB, |t|) nodes x 22 parameters (16 P-wave + 6 S-wave); |A|^2 = 7-term smooth model in (log Q2, log xB, |t|) times per-node rate calibration; amplitude direction interpolated linearly between nodes",
   "helicity_convention": "RGA (RGK beam helicity flipped to RGA before the fit)",
-  "coverage": {"Q2": [0.8, 4.0], "xB": [0.07, 0.62], "abs_t": [0.0, 2.65]},
-  "defaults": {"Q2MIN": "0.8", "Q2MAX": "4.0", "XBMIN": "0.07", "XBMAX": "0.62", "TMAX": "2.65"},
-  "validation": "angular shapes close to data (corrected-level shape chi2 cos 60/7, phi_H 83/11, Phi 53/11); W and xB shapes and the absolute yield are limited by the rho0 FastMC used for the rate calibration (fiducial yield ratio data/gen 1.17/1.10/1.10 at 6.4/8.5/10.6 GeV), see vecmeson_extraction FINDINGS 2026-11-05"
+  "coverage": {
+    "Q2": [
+      0.8,
+      4.0
+    ],
+    "xB": [
+      0.07,
+      0.62
+    ],
+    "abs_t": [
+      0.0,
+      2.65
+    ]
+  },
+  "defaults": {
+    "Q2MIN": "0.8",
+    "XBMIN": "0.05",
+    "WMIN": "1.8",
+    "TMIN": "0.1"
+  },
+  "validation": "angular shapes close to data (corrected-level shape chi2 cos 60/7, phi_H 83/11, Phi 53/11); W and xB shapes and the absolute yield are limited by the rho0 FastMC used for the rate calibration (fiducial yield ratio data/gen 1.17/1.10/1.10 at 6.4/8.5/10.6 GeV), see vecmeson_extraction FINDINGS 2026-11-05",
+  "defaults_by_beam": {
+    "6.395": {
+      "Q2MAX": "4.1",
+      "XBMAX": "0.59",
+      "ABSTMAX": "4.5",
+      "TMAX": "4.5",
+      "WMAX": "3.1"
+    },
+    "8.477": {
+      "Q2MAX": "6.1",
+      "XBMAX": "0.66",
+      "ABSTMAX": "5.1",
+      "TMAX": "5.1",
+      "WMAX": "3.6"
+    },
+    "10.6": {
+      "Q2MAX": "7.9",
+      "XBMAX": "0.69",
+      "ABSTMAX": "4.4",
+      "TMAX": "4.4",
+      "WMAX": "4.0"
+    }
+  },
+  "defaults_note": "2026-11-06 production windows. Minima for all beams: Q2 > 0.8, xB > 0.05, W > 1.8, -t > 0.1 GeV^2 (t < 0). Upper edges per beam = the 99.9th percentile of the selected data (selection cuts only, no analysis box; phi: DISANA RGK 6.535 / 7.546 and RGA Fall 2018 + Spring 2018 outbending; rho0: Harut's RGK 6.395 / 8.477 and RGA 10.6 outbending skims with his cuts and 0.5 < m(pipi) < 0.9), rounded up. TMAX (t' bound) = ABSTMAX, as t' <= |t|. Outside 'coverage' the amplitudes are extrapolated."
 }

@@ -47,8 +47,29 @@ def _interp_rows(x, xs, A):
     return np.exp(L)[..., None], U
 
 
+# OUTSIDE THE FITTED BOX (2026-11-06): the nodes (residuals + amplitude direction) are evaluated at the point clipped
+# into the box, and log|A|^2 of the smooth model is continued along its CHORD (mean slope across the fitted range) in each
+# of log Q2, log xB, |t| instead of along the polynomial, whose quadratic terms turn upward beyond the edges (phi: x e^11
+# at |t| = 5.5). Inside the box nothing changes.
+_BOX_LO, _BOX_HI = _LO.min(0), _HI.max(0)
+
+
+def _smooth(Q2, xB, t):
+    lo, hi = _BOX_LO, _BOX_HI
+    Qc, Xc, Tc = np.clip(Q2, lo[0], hi[0]), np.clip(xB, lo[1], hi[1]), np.clip(t, lo[2], hi[2])
+    F = lambda q, x, u: _poly_feats(q, x, u, len(_BETA)) @ _BETA
+    one = np.ones_like(Qc); out = F(Qc, Xc, Tc)
+    sq = (F(hi[0] * one, Xc, Tc) - F(lo[0] * one, Xc, Tc)) / np.log(hi[0] / lo[0])
+    sx = (F(Qc, hi[1] * one, Tc) - F(Qc, lo[1] * one, Tc)) / np.log(hi[1] / lo[1])
+    st = (F(Qc, Xc, hi[2] * one) - F(Qc, Xc, lo[2] * one)) / (hi[2] - lo[2])
+    return (out + sq * (np.log(np.maximum(Q2, 1e-6)) - np.log(Qc)) + sx * (np.log(np.maximum(xB, 1e-6)) - np.log(Xc))
+            + st * (t - Tc))
+
+
 def _params(Q2, xB, t):
     Q2, xB, t = np.broadcast_arrays(np.asarray(Q2, float), np.asarray(xB, float), np.asarray(t, float))
+    Q2o, xBo, to = Q2, xB, t
+    Q2, xB, t = (np.clip(v, _BOX_LO[i], _BOX_HI[i]) for i, v in enumerate((Q2, xB, t)))
     if INTERP == "bin":
         X = np.stack([Q2, xB, t], -1)[..., None, :]
         d = np.maximum(np.maximum(_LO - X, X - _HI), 0) / (_HI - _LO)      # 0 inside a bin
@@ -88,7 +109,7 @@ def _params(Q2, xB, t):
               + np.take_along_axis(U, (i + 1)[..., None, None], -2)[..., 0, :] * w[..., None])
     U1 = U1 / np.linalg.norm(U1, axis=-1, keepdims=True)
     if _BETA is not None:                      # nodes carry the RESIDUAL to the smooth model; add the model back
-        S1 = S1 + _poly_feats(Q2, xB, t, len(_BETA)) @ _BETA
+        S1 = S1 + _smooth(Q2o, xBo, to)
     return np.exp(0.5 * S1)[..., None] * U1
 
 

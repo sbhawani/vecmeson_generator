@@ -72,6 +72,8 @@ Options are environment variables:
 | `TMAX`   | Flat t' upper bound [GeV^2] | `4.0` |
 | `WMIN`   | Minimum W [GeV], a cut on the thrown events (0 = kinematic threshold only) | `0` |
 | `TMIN`   | Minimum -t = abs(t) [GeV^2] (t is negative), a cut on the thrown events (0 = kinematic t_min only) | `0` |
+| `WMAX`   | Maximum W [GeV], a cut on the thrown events (0 = none) | `0` |
+| `ABSTMAX` | Maximum -t = abs(t) [GeV^2], a cut on the thrown events (0 = none; `TMAX` bounds t') | `0` |
 | `TUNED` | `1` (or `--tuned_to_data`): use the helicity amplitudes extracted from CLAS12 data for `MESON` (see below) | `0` |
 | `OUTDIR` | Directory for the Lund files (created if needed); `Kin_plots/` goes inside it | `LUND_files/` next to the script |
 | `TAG` | Label in the Lund file names, `<V>_<E>gev_<TAG>_<i>.lund` (one per batch job sharing an `OUTDIR`) | (none) |
@@ -101,9 +103,22 @@ python generate_events.py MESON=rho0 E=8.477 N=500000 --tuned_to_data CHUNK=1000
 | phi  | Q^2 1.0-3.0, x_B 0.10-0.50, abs(t) < 1.7  | 6.535, 7.546, 10.6 GeV |
 | rho0 | Q^2 0.8-4.0, x_B 0.07-0.62, abs(t) < 2.65 | 6.395, 8.477, 10.6 GeV |
 
-Default windows in tuned mode: **phi** Q^2 > 0.6 (to 8), W > 1.8, x_B > 0.05 (to 0.7), -t > 0.1 GeV^2, t' < 1.7
-(production settings; the part below Q^2 = 1 / x_B = 0.1 is extrapolated); **rho0** = its fitted range. Every window
-can be overridden on the command line (`Q2MIN`, `Q2MAX`, `XBMIN`, `XBMAX`, `WMIN`, `TMIN`, `TMAX`).
+Default windows in tuned mode (both mesons), generated only where the data are:
+
+- minima, all beams: Q^2 > 0.8, x_B > 0.05, W > 1.8 GeV, -t > 0.1 GeV^2 (t is negative; the cut is on abs(t));
+- maxima per beam (picked from `E`) = the 99.9th percentile of the selected CLAS12 data, rounded up:
+
+| | Q^2 max | x_B max | abs(t) max | W max |
+|---|---|---|---|---|
+| phi 6.535  | 4.1 | 0.57 | 4.3 | 3.1 |
+| phi 7.546  | 4.8 | 0.60 | 5.0 | 3.4 |
+| phi 10.6   | 6.0 | 0.64 | 5.5 | 3.9 |
+| rho0 6.395 | 4.1 | 0.59 | 4.5 | 3.1 |
+| rho0 8.477 | 6.1 | 0.66 | 5.1 | 3.6 |
+| rho0 10.6  | 7.9 | 0.69 | 4.4 | 4.0 |
+
+Every window can be overridden (`Q2MIN`, `Q2MAX`, `XBMIN`, `XBMAX`, `WMIN`, `WMAX`, `TMIN`, `ABSTMAX`, `TMAX`). Outside
+the fitted range the amplitudes are extrapolated (one `[tuned] note:` line says where).
 
 
 - The tables live in `tuned/<MESON>/` (`amps.py` + `nodes.npz`; `nodes.csv` lists the fitted values and
