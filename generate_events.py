@@ -26,7 +26,7 @@ _OPTIONS = {  # name -> one-line help, for --help
     "MESON": "vector meson: rho0 | phi", "N": "number of events", "E": "beam energy [GeV]",
     "BEAM": "lepton beam: e | mu", "WEIGHT": "yield weight: flux | amp | vpk | hand | toy",
     "Q2MIN": "Q^2 lower [GeV^2]", "Q2MAX": "Q^2 upper [GeV^2]", "XBMIN": "x_B lower",
-    "XBMAX": "x_B upper", "TMAX": "flat t' upper bound [GeV^2]", "POL": "beam helicity magnitude",
+    "XBMAX": "x_B upper", "TMAX": "flat t' upper bound [GeV^2]", "WMIN": "minimum W [GeV] (0 = only the kinematic threshold)", "POL": "beam helicity magnitude",
     "MMAX": "upper edge of the BW mass window [GeV]; 0 = use NWIDTHS rule",
     "NWIDTHS": "BW mass window = M0 + NWIDTHS*Gamma (default 8; rho0 -> 1.968 GeV)",
     "BW": "sample Breit-Wigner lineshape: 1 | 0", "CHUNK": "events per Lund file",
@@ -194,6 +194,9 @@ LUND_WPHYS = os.environ.get("LUND_WPHYS", "1") not in ("0", "", "false", "False"
 Q2MIN = float(os.environ.get("Q2MIN", "1.0")); Q2MAX = float(os.environ.get("Q2MAX", "6.0"))
 XBMIN = float(os.environ.get("XBMIN", "0.08")); XBMAX = float(os.environ.get("XBMAX", "0.5"))
 TMAX = float(os.environ.get("TMAX", "4.0"))
+# WMIN (2026-11-06): a lower W cut applied to the thrown candidates, like the y and threshold cuts. Candidates it removes
+# still count in n_thrown, so the absolute normalisation (sigma_bar_box over the Q2-xB-t' box) stays right.
+WMIN = float(os.environ.get("WMIN", "0"))
 # Breit-Wigner mass-window controls (2026-08-28, raised by Harut).  The upper edge of the
 # BW accept-reject window was a hard-coded M0 + 8*Gamma.  For the rho0 that is
 # 0.77526 + 8*0.14910 = 1.968 GeV -- an invisible ~2 GeV ceiling on M(pipi): masses above it
@@ -429,7 +432,7 @@ def throw(E, n_pool, rng, MV, GV, MH):
     nu = Q2/(2*M*xB); y = nu/E; W2 = M*M + 2*M*nu - Q2; Ep = E - nu
     cose = 1 - Q2/(2*E*np.clip(Ep, 1e-6, None))
     # FIXED(vpk-comp #7a): honour TMAX (was a hardcoded 'tprime < 4' that silently overrode TMAX>4).
-    ok = (y > 0) & (y < 0.99) & (W2 > (M+mv)**2) & (Ep > 0.3) & (np.abs(cose) < 1) & (tprime < TMAX)
+    ok = (y > 0) & (y < 0.99) & (W2 > (M+mv)**2) & (Ep > 0.3) & (np.abs(cose) < 1) & (tprime < TMAX) & (W2 > WMIN**2)
     Q2, xB, tprime, nu, y, W2, Ep, cose, mv = (v[ok] for v in (Q2, xB, tprime, nu, y, W2, Ep, cose, mv))
     Wm = np.sqrt(W2); gam = 2*M*xB/np.sqrt(Q2)
     eps = (1 - y - 0.25*gam**2*y**2)/(1 - y + 0.5*y**2 + 0.25*gam**2*y**2)
@@ -672,6 +675,7 @@ def write_lund(ev, meta, outdir, base):
             fc.write(f"# box_Q2 = {Q2MIN:.6g} {Q2MAX:.6g}\n")
             fc.write(f"# box_xB = {XBMIN:.6g} {XBMAX:.6g}\n")
             fc.write(f"# box_tprime_max = {TMAX:.6g}\n")
+            fc.write(f"# W_min = {WMIN:.6g}  (cut on the thrown candidates; 0 = none)\n")
             # USE THIS ONE. n_kept is truncated to the requested N, so the thrown count that
             # actually corresponds to the WRITTEN sample is n_kept/accept_probability, and
             #     L = n_kept / (sigma_bar * V_box)

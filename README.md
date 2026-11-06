@@ -70,6 +70,7 @@ Options are environment variables:
 | `Q2MIN` `Q2MAX` | Q^2 sampling window [GeV^2] | `1.0` `6.0` |
 | `XBMIN` `XBMAX` | x_B sampling window | `0.08` `0.5` |
 | `TMAX`   | Flat t' upper bound [GeV^2] | `4.0` |
+| `WMIN`   | Minimum W [GeV], a cut on the thrown events (0 = kinematic threshold only) | `0` |
 | `TUNED` | `1` (or `--tuned_to_data`): use the helicity amplitudes extracted from CLAS12 data for `MESON` (see below) | `0` |
 | `OUTDIR` | Directory for the Lund files (created if needed); `Kin_plots/` goes inside it | `LUND_files/` next to the script |
 | `TAG` | Label in the Lund file names, `<V>_<E>gev_<TAG>_<i>.lund` (one per batch job sharing an `OUTDIR`) | (none) |
