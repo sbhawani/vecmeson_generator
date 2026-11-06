@@ -34,7 +34,7 @@ _OPTIONS = {  # name -> one-line help, for --help
     "BW": "sample Breit-Wigner lineshape: 1 | 0", "CHUNK": "events per Lund file",
     "ASK_MAX": "max candidates thrown per accept-reject pass (memory cap, ~1.5 kB each; default 1e6)",
     "LUND_SWAVE": "append the 6 S-wave truth columns (S00_re, S00_im, S01_re, S01_im, V01_re, V01_im) AFTER every other column: 1 | 0",
-    "OUTDIR": "directory for the Lund files (created if needed; Kin_plots/ goes inside it); default LUND_files/ next to this script",
+    "OUTDIR": "output directory (created if needed): Lund files ONLY in OUTDIR/lund/, columns/luminosity in OUTDIR/info/, plots in OUTDIR/Kin_plots/; default LUND_files/ + Kin_plots/ next to this script",
     "TAG": "label added to the Lund file names, <V>_<E>gev_<TAG>_<i>.lund, so jobs sharing one OUTDIR do not overwrite each other",
     "AMP_FILE": "path to a file defining user_amplitudes(Q2, xB, t)",
     "TUNED": "1 (or pass --tuned_to_data): use the amplitudes extracted from CLAS12 data for MESON (tuned/<MESON>/); "
@@ -640,7 +640,7 @@ LUND_AMP_COLS = ["T11", "ReT00", "ImT00", "ReT01", "ImT01", "ReT10", "ImT10", "R
                  "U11", "ReU01", "ImU01", "ReU10", "ImU10", "ReU1m1", "ImU1m1"]
 
 
-def write_lund(ev, meta, outdir, base):
+def write_lund(ev, meta, outdir, base, infodir=None):
     """CLAS12/GEMC Lund, split into files of at most EVENTS_PER_FILE events (GEMC limit),
     named <base>_0.lund, <base>_1.lund, ...  particle lines(14):
     idx lifetime type pid parent daughter px py pz E mass vx vy vz.
@@ -666,7 +666,7 @@ def write_lund(ev, meta, outdir, base):
         Spar = np.zeros((n, 6))
     extra_cols = ((LUND_KIN_COLS if LUND_KIN else []) + (LUND_AMP_COLS if LUND_TRUTH else [])
                   + (LUND_WPHYS_COLS if LUND_WPHYS else []) + (LUND_SWAVE_COLS if LUND_SWAVE else []))
-    with open(os.path.join(outdir, f"{base}_columns.txt"), "w") as fc:
+    with open(os.path.join(infodir or outdir, f"{base}_columns.txt"), "w") as fc:
         std = ["nparticles", "A", "Z", "target_pol", "beam_helicity", "beam_type", "E_beam",
                "target_pid", "process_id", "weight_wphys"]
         tag = "  [+truth amplitudes]" if LUND_TRUTH else ("  [+kinematics, blind]" if LUND_KIN else "  [clean standard Lund]")
@@ -740,7 +740,7 @@ def write_lund(ev, meta, outdir, base):
     mode = "clean standard Lund" if not extra_cols else (f"10 std + {len(extra_cols)} extra"
            + (", incl. TRUTH amplitudes" if LUND_TRUTH else ", blind kinematics"))
     print(f"[lund] wrote {n} events in {nfiles} file(s) of <= {EVENTS_PER_FILE} "
-          f"-> {os.path.join(outdir, base)}_[0..{nfiles-1}].lund  ({mode}; see {base}_columns.txt)", flush=True)
+          f"-> {os.path.join(outdir, base)}_[0..{nfiles-1}].lund  ({mode}; see {os.path.join(infodir or outdir, base)}_columns.txt)", flush=True)
 
 
 # ------------------------------------------------------------------ plots -----
@@ -869,13 +869,19 @@ def main():
     print(f"[seed] SEED={SEED}"
           + ("  (random; pass SEED={} to reproduce this run)".format(SEED) if not _seed_env else ""),
           flush=True)
-    # OUTDIR / TAG (2026-11-06, for batch/OSG production): Lund files in OUTDIR (plots in OUTDIR/Kin_plots),
-    # file names <V>_<E>gev[_<TAG>]_<i>.lund. Defaults: LUND_files/ and Kin_plots/ next to this script, no tag.
+    # OUTDIR / TAG (for batch/OSG production). With OUTDIR (created if needed) the outputs are split so the
+    # Lund directory holds ONLY .lund files (what OSG takes as input):
+    #   OUTDIR/lund/<V>_<E>gev[_<TAG>]_<i>.lund   OUTDIR/info/*_columns.txt, luminosity.txt   OUTDIR/Kin_plots/
+    # Without OUTDIR: LUND_files/ (Lund + columns.txt) and Kin_plots/ next to this script, as before.
     _outdir = os.path.abspath(os.path.expanduser(os.environ["OUTDIR"])) if os.environ.get("OUTDIR") else ""
     _tag = f"_{os.environ['TAG']}" if os.environ.get("TAG") else ""
     kd = os.path.join(_outdir, "Kin_plots") if _outdir else os.path.join(HERE, "Kin_plots")
-    ld = _outdir or os.path.join(HERE, "LUND_files")
-    os.makedirs(kd, exist_ok=True); os.makedirs(ld, exist_ok=True)
+    ld = os.path.join(_outdir, "lund") if _outdir else os.path.join(HERE, "LUND_files")
+    idir = os.path.join(_outdir, "info") if _outdir else ld
+    for d in (kd, ld, idir):
+        os.makedirs(d, exist_ok=True)
+    if _outdir:
+        print(f"[out] Lund files -> {ld}/   columns/luminosity -> {idir}/   plots -> {kd}/", flush=True)
     if MULTI:
         # relative beam luminosities (default equal = equal running time per beam)
         lumis = [float(x) for x in os.environ.get("LUMI", ",".join(["1"] * len(MULTI_ENERGIES))).split(",")]
@@ -885,18 +891,18 @@ def main():
         evs, counts = generate_multi(MULTI_ENERGIES, meta, rng, lumis, N_EVENTS)
         for E, evE in zip(MULTI_ENERGIES, evs):
             sub = os.path.join(ld, f"{E:g}GeV"); os.makedirs(sub, exist_ok=True)   # e.g. LUND_files/6.535GeV/
-            write_lund(evE, meta, sub, f"{MESON}_{E:g}gev{_tag}")
-        with open(os.path.join(ld, "luminosity.txt"), "w") as f:                    # data-analysis normalization
+            write_lund(evE, meta, sub, f"{MESON}_{E:g}gev{_tag}", infodir=idir)
+        with open(os.path.join(idir, "luminosity.txt"), "w") as f:                    # data-analysis normalization
             f.write("# beam_energy_GeV   relative_luminosity   accepted_events\n")
             for E, L, nE in zip(MULTI_ENERGIES, lumis, counts):
                 f.write(f"{E:g}  {L:g}  {nE}\n")
         print(f"[multi-energy] accepted per beam: {dict(zip(MULTI_ENERGIES, counts))}; "
-              f"wrote {ld}/luminosity.txt", flush=True)
+              f"wrote {idir}/luminosity.txt", flush=True)
         ev = {k: np.concatenate([e[k] for e in evs]) for k in evs[0]}   # pooled -> combined plots only
     else:
         print(f"generating {N_EVENTS} {MESON} events at E={BEAM_ENERGY} GeV ...", flush=True)
         ev = generate(BEAM_ENERGY, N_EVENTS, meta["MV"], meta["width"], meta["MH"], rng)
-        write_lund(ev, meta, ld, f"{MESON}_{BEAM_ENERGY:.1f}gev{_tag}")
+        write_lund(ev, meta, ld, f"{MESON}_{BEAM_ENERGY:.1f}gev{_tag}", infodir=idir)
     plot_particle_kinematics(ev, meta, os.path.join(kd, f"particle_kinematics_{MESON}.pdf"))
     plot_dvep(ev, os.path.join(kd, f"dvep_kinematics_{MESON}.pdf"))
     plot_amplitudes(meta, os.path.join(kd, f"amplitudes_{MESON}.pdf"))

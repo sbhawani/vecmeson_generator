@@ -75,7 +75,7 @@ Options are environment variables:
 | `WMAX`   | Maximum W [GeV], a cut on the thrown events (0 = none) | `0` |
 | `ABSTMAX` | Maximum -t = abs(t) [GeV^2], a cut on the thrown events (0 = none; `TMAX` bounds t') | `0` |
 | `TUNED` | `1` (or `--tuned_to_data`): use the helicity amplitudes extracted from CLAS12 data for `MESON` (see below) | `0` |
-| `OUTDIR` | Directory for the Lund files (created if needed); `Kin_plots/` goes inside it | `LUND_files/` next to the script |
+| `OUTDIR` | Output directory (created if needed). Only the `.lund` files go to `OUTDIR/lund/` (ready as OSG input); `_columns.txt`/`luminosity.txt` go to `OUTDIR/info/`, plots to `OUTDIR/Kin_plots/` | `LUND_files/` + `Kin_plots/` next to the script |
 | `TAG` | Label in the Lund file names, `<V>_<E>gev_<TAG>_<i>.lund` (one per batch job sharing an `OUTDIR`) | (none) |
 | `SEED` | Random seed (int); unset = a fresh random seed per run, printed in the log | random |
 | `AMP_FILE` | Path to a file defining `user_amplitudes(Q2, xB, t)` (legacy `(Q2, t)` still accepted), overrides the built-in set | (none) |
@@ -132,7 +132,8 @@ the fitted range the amplitudes are extrapolated (one `[tuned] note:` line says 
   yours to set (default 1.0); the data were fitted with 0.85.
 - Every other option works as usual. For a large production split into jobs (e.g. OSG) give each job its own
   `SEED` and `TAG`, and point them at one `OUTDIR`:
-  `python generate_events.py MESON=phi E=10.6 N=50000 --tuned_to_data SEED=17 TAG=job17 OUTDIR=/path/to/lund`
+  `python generate_events.py MESON=phi E=10.6 N=50000 --tuned_to_data SEED=17 TAG=job17 OUTDIR=/path/to/run`
+  (the job writes `/path/to/run/lund/phi_10.6gev_job17_<i>.lund`; give OSG the `lund/` folder)
 - Validation: phi reproduces the acceptance-corrected data inside the CLAS12 fiducial region to 4-6% in
   yield and its beam-spin asymmetries. For the rho0 the angular shapes are close to the data; the W/x_B
   shapes and the absolute yield are limited by the detector model used in the fit (10-17% at
