@@ -71,6 +71,8 @@ Options are environment variables:
 | `XBMIN` `XBMAX` | x_B sampling window | `0.08` `0.5` |
 | `TMAX`   | Flat t' upper bound [GeV^2] | `4.0` |
 | `TUNED` | `1` (or `--tuned_to_data`): use the helicity amplitudes extracted from CLAS12 data for `MESON` (see below) | `0` |
+| `OUTDIR` | Directory for the Lund files (created if needed); `Kin_plots/` goes inside it | `LUND_files/` next to the script |
+| `TAG` | Label in the Lund file names, `<V>_<E>gev_<TAG>_<i>.lund` (one per batch job sharing an `OUTDIR`) | (none) |
 | `AMP_FILE` | Path to a file defining `user_amplitudes(Q2, xB, t)` (legacy `(Q2, t)` still accepted), overrides the built-in set | (none) |
 | `LUND_KIN` | Append 8 kinematic columns to the Lund header (blind-safe) | `0` |
 | `LUND_TRUTH` | Also append the 16 truth amplitude columns (reveals the truth) | `1` |
@@ -103,8 +105,9 @@ python generate_events.py MESON=rho0 E=8.477 N=500000 --tuned_to_data CHUNK=1000
   held at the outermost fitted values).
 - Beam-helicity convention: RGA (the RGK runs were flipped to RGA before the fit). `POL` is still
   yours to set (default 1.0); the data were fitted with 0.85.
-- Every other option works as usual. Use a different `SEED` per job when splitting a large production
-  (e.g. OSG), or leave `SEED` unset for a fresh seed each run.
+- Every other option works as usual. For a large production split into jobs (e.g. OSG) give each job its own
+  `SEED` and `TAG`, and point them at one `OUTDIR`:
+  `python generate_events.py MESON=phi E=10.6 N=50000 --tuned_to_data SEED=17 TAG=job17 OUTDIR=/path/to/lund`
 - Validation: phi reproduces the acceptance-corrected data inside the CLAS12 fiducial region to 4-6% in
   yield and its beam-spin asymmetries. For the rho0 the angular shapes are close to the data; the W/x_B
   shapes and the absolute yield are limited by the detector model used in the fit (10-17% at
