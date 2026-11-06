@@ -1,0 +1,10 @@
+{
+  "meson": "rho0",
+  "description": "rho0 -> pi+pi- helicity amplitudes (Diehl notation, T and U, nucleon non-flip) plus the pi+pi- S-wave, extracted from CLAS12 RGA/RGK data (6.395, 8.477, 10.6 GeV) by the per-bin unbinned likelihood fit with the 7-D acceptance.",
+  "source_run": "vecmeson_extraction outputs/rho_gencheck_fmc_sw_q08_sp_hn2 (config_rho_fmc_sw_q08_sp_hn2.json), 2026-11-05",
+  "content": "51 (Q2, xB, |t|) nodes x 22 parameters (16 P-wave + 6 S-wave); |A|^2 = 7-term smooth model in (log Q2, log xB, |t|) times per-node rate calibration; amplitude direction interpolated linearly between nodes",
+  "helicity_convention": "RGA (RGK beam helicity flipped to RGA before the fit)",
+  "coverage": {"Q2": [0.8, 4.0], "xB": [0.07, 0.62], "abs_t": [0.0, 2.65]},
+  "defaults": {"Q2MIN": "0.8", "Q2MAX": "4.0", "XBMIN": "0.07", "XBMAX": "0.62", "TMAX": "2.65"},
+  "validation": "angular shapes close to data (corrected-level shape chi2 cos 60/7, phi_H 83/11, Phi 53/11); W and xB shapes and the absolute yield are limited by the rho0 FastMC used for the rate calibration (fiducial yield ratio data/gen 1.17/1.10/1.10 at 6.4/8.5/10.6 GeV), see vecmeson_extraction FINDINGS 2026-11-05"
+}

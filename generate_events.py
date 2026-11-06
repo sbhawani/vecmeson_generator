@@ -30,7 +30,11 @@ _OPTIONS = {  # name -> one-line help, for --help
     "MMAX": "upper edge of the BW mass window [GeV]; 0 = use NWIDTHS rule",
     "NWIDTHS": "BW mass window = M0 + NWIDTHS*Gamma (default 8; rho0 -> 1.968 GeV)",
     "BW": "sample Breit-Wigner lineshape: 1 | 0", "CHUNK": "events per Lund file",
+    "ASK_MAX": "max candidates thrown per accept-reject pass (memory cap, ~1.5 kB each; default 1e6)",
+    "LUND_SWAVE": "append the 6 S-wave truth columns (S00_re, S00_im, S01_re, S01_im, V01_re, V01_im) AFTER every other column: 1 | 0",
     "AMP_FILE": "path to a file defining user_amplitudes(Q2, xB, t)",
+    "TUNED": "1 (or pass --tuned_to_data): use the amplitudes extracted from CLAS12 data for MESON (tuned/<MESON>/); "
+             "sets AMP_FILE and, unless given, the Q2/xB/t windows to the fitted range",
     "SEED": "random seed (int); omit for a fresh seed (different events) each run",
     "LUND_KIN": "append 8 kinematic columns (blind-safe): 1 | 0",
     "LUND_TRUTH": "append 16 truth-amplitude columns: 1 | 0",
@@ -45,7 +49,7 @@ _OPTIONS = {  # name -> one-line help, for --help
                   " trailing header column: 1 | 0 (default 1)",
 }
 if "--help" in sys.argv or "-h" in sys.argv:
-    print("Usage: python generate_events.py [KEY=VALUE ...] [--multi-energy]\n\n"
+    print("Usage: python generate_events.py [KEY=VALUE ...] [--multi-energy] [--tuned_to_data]\n\n"
           "Options (KEY=VALUE, on the command line or as environment variables):")
     for _k, _h in _OPTIONS.items():
         print(f"  {_k:<11} {_h}")
@@ -59,6 +63,36 @@ for _tok in sys.argv[1:]:
         if _k not in _OPTIONS:
             print(f"[warn] unknown option '{_k}' (ignored by the settings; run --help for the list)",
                   file=sys.stderr)
+
+# --- --tuned_to_data / TUNED=1: helicity amplitudes extracted from CLAS12 data (2026-11-06) ---
+# tuned/<MESON>/amps.py (+ nodes.npz) is the fitted amplitude table of the vecmeson_extraction
+# analysis (P wave + S wave, Diehl notation); tuned/<MESON>/tuned.json records its source run,
+# coverage and validation. The table is only constrained inside its coverage: the Q2/xB/t windows
+# default to it, and explicit windows outside it are allowed but warned about (extrapolation).
+TUNED = (any(a in sys.argv for a in ("--tuned_to_data", "--tuned-to-data"))
+         or os.environ.get("TUNED", "0") not in ("0", "", "false", "False"))
+if TUNED:
+    import json as _json
+    _m = os.environ.get("MESON", "phi")
+    _td = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tuned", _m)
+    if not os.path.isfile(os.path.join(_td, "amps.py")):
+        sys.exit(f"[tuned] no data-tuned amplitudes for MESON={_m} (have: "
+                 f"{', '.join(sorted(os.listdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tuned'))))})")
+    if os.environ.get("AMP_FILE"):
+        sys.exit("[tuned] --tuned_to_data and AMP_FILE both given; use one")
+    os.environ["AMP_FILE"] = os.path.join(_td, "amps.py")
+    _tj = _json.load(open(os.path.join(_td, "tuned.json")))
+    for _k, _v in _tj["defaults"].items():
+        os.environ.setdefault(_k, _v)
+    _cv = _tj["coverage"]
+    for _k, _lo, _hi in (("Q2MIN", *_cv["Q2"]), ("Q2MAX", *_cv["Q2"]), ("XBMIN", *_cv["xB"]),
+                         ("XBMAX", *_cv["xB"]), ("TMAX", *_cv["abs_t"])):
+        if not (_lo - 1e-9 <= float(os.environ[_k]) <= _hi + 1e-9):
+            print(f"[tuned] WARNING: {_k}={os.environ[_k]} is outside the fitted range {_lo}..{_hi} "
+                  f"-> the amplitudes there are extrapolated", file=sys.stderr)
+    print(f"[tuned] MESON={_m}: data-tuned amplitudes from {_tj['source_run']}", flush=True)
+    print(f"[tuned] windows Q2 {os.environ['Q2MIN']}..{os.environ['Q2MAX']}, xB {os.environ['XBMIN']}.."
+          f"{os.environ['XBMAX']}, TMAX {os.environ['TMAX']}", flush=True)
 
 import numpy as np
 import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
@@ -80,6 +114,11 @@ M_LEP = ME if BEAM == "e" else 0.1056584               # beam lepton mass [GeV]
 LEP_PID = 11 if BEAM == "e" else 13                    # PDG id of beam / scattered lepton
 N_EVENTS    = int(os.environ.get("N", "20000"))        # total events generated
 EVENTS_PER_FILE = int(os.environ.get("CHUNK", "5000")) # events per Lund file (GEMC limit); N/CHUNK files
+# Candidates thrown per accept-reject pass are capped: each costs ~1.5 kB of transient numpy arrays
+# in throw() (4-vectors, 16 params, 28 u's, W terms), and the uncapped 4*(remaining) rule asked
+# for 10M at once for N=2.5M (~16 GB per process; three in parallel took a 38 GB machine down,
+# 2026-11-01). 1e6 keeps a process near 3 GB; the accepted sample is unchanged in distribution.
+ASK_MAX     = int(float(os.environ.get("ASK_MAX", "1000000")))
 BEAM_POL    = float(os.environ.get("POL", "1.0"))      # beam helicity magnitude; default 1.0 = fully polarised beam (matches the extraction training convention CFG.generator.pol = 1.0); set POL=0 explicitly for an unpolarised beam
 # --- target polarization modes (mirror of the extraction's Mode A/B/C tiers) -----------------
 # MODE=A: bit-identical to the historical generator (W from diehl_w on the 16 non-flip params).
@@ -177,6 +216,11 @@ MFRAC   = float(os.environ.get("MFRAC", "0"))      # >0: retain this fraction of
                                                    #      99% target runs away for narrow states --
                                                    #      measured 0.7% sampling efficiency for the phi)
 NWIDTHS = float(os.environ.get("NWIDTHS", "8.0"))  # fallback rule: M0 + NWIDTHS*Gamma
+# RS_SKEW (2026-11-03): Ross-Stodolsky skewing of the line shape, intensity x (M0/m)^RS_SKEW. The CLAS12
+# rho0 data peak 5-10 MeV below the p-wave BW with an excess on the low side; fits of the MC-reco line
+# shape x (M0/m)^n to the cleanest (rho fraction > 0.9) bins give n = 1.3-2.1 (vecmeson_extraction
+# FINDINGS 2026-11-03). 0 (default) = the plain p-wave BW. An empirical stand-in for the S-P interference.
+RS_SKEW = float(os.environ.get("RS_SKEW", "0.0"))
 MMAX    = float(os.environ.get("MMAX", "0"))       # >0: hard override of the upper edge [GeV]
 
 # --- Helicity amplitudes as functions of (Q^2, |t|).  EDIT THESE. ------------
@@ -235,7 +279,35 @@ if _AMP_FILE:
     if hasattr(_mod, "user_amplitudes_flip"):
         user_amplitudes_flip = _mod.user_amplitudes_flip          # MODE=C flip block override
         print("[amplitudes] AMP_FILE also provides user_amplitudes_flip (MODE=C)", flush=True)
+    # S + P WAVE (2026-11-02, diehl_w_sp.py): user_swave(Q2, xB, t) -> the 6 real S-wave
+    # parameters (S00_re, S00_im, S01_re, S01_im, V01_re, V01_im) per event, or the complex
+    # triple (S00, S01, V01). The non-resonant h+h- S-wave under the peak is produced with its
+    # own helicity amplitudes and INTERFERES with the vector meson's (odd decay moments);
+    # W is then diehl_w_sp.W_sp instead of diehl_w.W (identical when S = 0). MODE=A only.
+    if hasattr(_mod, "user_swave"):
+        user_swave = _mod.user_swave
+        print("[amplitudes] AMP_FILE also provides user_swave -> S + P wave intensity (diehl_w_sp)", flush=True)
+    # NUCLEON-HELICITY-FLIP SET (2026-11-04, extraction UML_FLIP=1): user_amplitudes_second(Q2, xB, t) returns a second
+    # 9-tuple in the user_amplitudes format; its u's add INCOHERENTLY to the first set's (Diehl eq. 3.4, sum over the
+    # nucleon helicities), W = W16(A) + W16(A'). MODE=A only; MODE=C keeps its own 18-parameter user_amplitudes_flip.
+    if hasattr(_mod, "user_amplitudes_second"):
+        user_amplitudes_second = _mod.user_amplitudes_second
+        print("[amplitudes] AMP_FILE also provides user_amplitudes_second -> incoherent nucleon-helicity-flip set", flush=True)
     print(f"[amplitudes] external AMP_FILE={_AMP_FILE}", flush=True)
+LUND_SWAVE = os.environ.get("LUND_SWAVE", "0") == "1"
+
+
+def swave_params(Q2, xB, t):
+    """user_swave -> (n, 6) real S-wave parameters, or None when no S-wave hook is loaded."""
+    if "user_swave" not in globals():
+        return None
+    r = user_swave(Q2, xB, t)
+    z = np.zeros(np.broadcast(np.asarray(Q2), np.asarray(xB), np.asarray(t)).shape, float)
+    if isinstance(r, (tuple, list)) and len(r) == 3:
+        S00, S01, V01 = (np.asarray(x) + z for x in r)
+        return np.stack([S00.real, S00.imag, S01.real, S01.imag, V01.real, V01.imag], 1)
+    r = np.asarray(r, float)
+    return np.broadcast_to(r, z.shape + (6,)).reshape(-1, 6) if r.ndim == 1 else r.reshape(-1, 6)
 
 
 _WARNED_IMU11 = [False]
@@ -255,6 +327,15 @@ def amps_to_params(Q2, xB, t):
     return np.stack([re(T11), re(T00), im(T00), re(T01), im(T01), re(T10), im(T10),
                      re(T1m1), im(T1m1), re(U11), re(U01), im(U01),
                      re(U10), im(U10), re(U1m1), im(U1m1)], axis=-1)
+
+
+def _tuple16(tup, Q2):
+    """A 9-tuple in the user_amplitudes format -> (N, 16) real parameters (Im U11 dropped, as in MODE=A)."""
+    T11, T00, T01, T10, T1m1, U11, U01, U10, U1m1 = tup
+    z = np.zeros(np.shape(Q2), float)
+    re = lambda x: np.real(x) + z; im = lambda x: np.imag(x) + z
+    return np.stack([re(T11), re(T00), im(T00), re(T01), im(T01), re(T10), im(T10), re(T1m1), im(T1m1),
+                     re(U11), re(U01), im(U01), re(U10), im(U10), re(U1m1), im(U1m1)], axis=-1)
 
 
 def amps_im_u11(Q2, xB, t):
@@ -324,7 +405,7 @@ def sample_meson_mass(rng, n, M0, Gamma, mh):
         p = np.sqrt(np.clip(m**2/4 - mh**2, 0.0, None))
         bw = (1.0 + (p0*R)**2)/(1.0 + (p*R)**2)                  # Blatt-Weisskopf L=1 barrier factor
         Gm = Gamma*(M0/m)*(p/p0)**3*bw                           # mass-dependent P-wave width
-        return m**2 * M0 * Gm / ((m**2 - M0**2)**2 + M0**2 * Gm**2)
+        return m**2 * M0 * Gm / ((m**2 - M0**2)**2 + M0**2 * Gm**2) * (M0/m)**RS_SKEW
     m_lo, m_hi = _mass_window(M0, Gamma, mh, intensity)
     Imax = 1.05*intensity(np.linspace(m_lo, m_hi, 4000)).max()
     out = np.empty(n); filled = 0
@@ -397,8 +478,15 @@ def throw(E, n_pool, rng, MV, GV, MH):
     hsign = rng.choice([-1.0, 1.0], N) if BEAM_POL > 0 else np.zeros(N)  # per-event beam helicity: +1/-1 (0 if unpol.)
     heli = BEAM_POL * hsign                                              # W uses (polarization degree) x (sign)
     P16 = amps_to_params(Q2, xB, -t)
-    if MODE == "A":                                          # historical path, bit-identical
-        u = amp_to_u28_batch(P16); ud = {nm: u[:, i] for i, nm in enumerate(UNAMES)}
+    if MODE == "A" and "user_swave" in globals():            # S + P wave (diehl_w_sp), 2026-11-02
+        from diehl_w_sp import W_sp
+        Wp = np.nan_to_num(np.clip(W_sp(CosTh, Phi, phipr, eps, heli, P16, swave_params(Q2, xB, -t)), 0, None))
+        tspin = np.zeros(N)
+    elif MODE == "A":                                        # historical path, bit-identical
+        u = amp_to_u28_batch(P16)
+        if "user_amplitudes_second" in globals():            # incoherent flip set (2026-11-04)
+            u = np.array(u, float) + np.array(amp_to_u28_batch(_tuple16(user_amplitudes_second(Q2, xB, -t), Q2)), float)
+        ud = {nm: u[:, i] for i, nm in enumerate(UNAMES)}
         Wp = np.nan_to_num(np.clip(W_ang(CosTh, Phi, phipr, eps, heli, ud), 0, None))
         tspin = np.zeros(N)
     else:                                                    # polarized target (Mode B/C)
@@ -450,7 +538,7 @@ def generate(E, n_target, MV, GV, MH, rng, wmax=None):
     n_thrown = 0; sum_w = 0.0        # absolute-normalization bookkeeping (free: every thrown
     wm_used = []                     # candidate's wphys is computed anyway); sigma_bar of the
     while have < n_target:           # sampled box = sum_w / n_thrown.
-        n_ask = max(200000, 4*(n_target - have))
+        n_ask = min(ASK_MAX, max(200000, 4*(n_target - have)))
         d = throw(E, n_ask, rng, MV, GV, MH)
         n_thrown += n_ask
         sum_w += float(np.nansum(d["wphys"]))
@@ -520,6 +608,7 @@ LUND_WPHYS_COLS = ["wphys", "sigma_bar_box", "n_thrown",
 # self-contained: sigma_bar_box = sum(wphys)/n over ALL thrown candidates (flat-box mean
 # of Gamma*W), n_thrown = candidates thrown. These carry the sigma-INTEGRAL that
 # accept-reject events otherwise lose (see WEIGHTED comment).
+LUND_SWAVE_COLS = ["S00_re", "S00_im", "S01_re", "S01_im", "V01_re", "V01_im"]   # LUND_SWAVE=1, after everything else
 LUND_AMP_COLS = ["T11", "ReT00", "ImT00", "ReT01", "ImT01", "ReT10", "ImT10", "ReT1m1", "ImT1m1",
                  "U11", "ReU01", "ImU01", "ReU10", "ImU10", "ReU1m1", "ImU1m1"]
 
@@ -545,8 +634,11 @@ def write_lund(ev, meta, outdir, base):
              (meta["pid_hp"], ev["hp"], meta["MH"]), (meta["pid_hm"], ev["hm"], meta["MH"])]
     n = len(ev["Q2"]); nfiles = int(np.ceil(n / EVENTS_PER_FILE))
     Apar = amps_to_params(ev["Q2"], ev["xB"], ev["absT"]) if LUND_TRUTH else None    # truth amplitudes only if requested
+    Spar = swave_params(ev["Q2"], ev["xB"], ev["absT"]) if LUND_SWAVE else None       # S-wave truth, opt-in, LAST columns
+    if Spar is None and LUND_SWAVE:
+        Spar = np.zeros((n, 6))
     extra_cols = ((LUND_KIN_COLS if LUND_KIN else []) + (LUND_AMP_COLS if LUND_TRUTH else [])
-                  + (LUND_WPHYS_COLS if LUND_WPHYS else []))
+                  + (LUND_WPHYS_COLS if LUND_WPHYS else []) + (LUND_SWAVE_COLS if LUND_SWAVE else []))
     with open(os.path.join(outdir, f"{base}_columns.txt"), "w") as fc:
         std = ["nparticles", "A", "Z", "target_pol", "beam_helicity", "beam_type", "E_beam",
                "target_pid", "process_id", "weight_wphys"]
@@ -608,6 +700,8 @@ def write_lund(ev, meta, outdir, base):
                     extra += (f" {ev['wphys'][i]:.6g} {sbar:.8g} {nt}"
                               f" {BEAM_POL:.4g} {PHI_S:.6g} {_mc}"
                               f" {Q2MIN:.6g} {Q2MAX:.6g} {XBMIN:.6g} {XBMAX:.6g} {TMAX:.6g}")
+                if LUND_SWAVE:
+                    extra += " " + " ".join(f"{a:.5g}" for a in Spar[i])
                 tp = ev["tspin"][i] * TARGET_PT if (MODE != "A" and "tspin" in ev) else 0
                 f.write(f"4 1 1 {tp:.3g} {int(ev['hsign'][i])} {LEP_PID} {ev['Ebeam'][i]:.4f} 2212 0 {wt[i]:.6g}{extra}\n")
                 for j, (pid, p4, mass) in enumerate(parts, start=1):

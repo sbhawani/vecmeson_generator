@@ -63,19 +63,52 @@ Options are environment variables:
 | `CHUNK`  | Events per Lund file (GEMC per-file limit) | `5000` |
 | `MULTI`  | `1` (or `--multi-energy`): generate at 6.535 / 7.546 / 10.6 GeV in one run | `0` |
 | `LUMI`   | Multi-energy relative beam luminosities, e.g. `LUMI=2,1,1` | equal |
-| `POL`    | Beam polarization degree (0 = unpolarised); each event's helicity sign is written to the Lund header | `0` |
+| `POL`    | Beam polarization degree (0 = unpolarised); each event's helicity sign is written to the Lund header | `1.0` |
 | `BW`     | Sample the meson mass from a relativistic Breit-Wigner (1) or use the fixed pole mass (0) | `1` |
 | `WEIGHT` | Yield weighting **shape**: `flux` \| `amp` \| `vpk` \| `hand` \| `toy` (see below) | `flux` |
 | `WEIGHTED` | `0` = unweighted accept-reject events (like real data); `1` = keep all flat events, physics weight in Lund field 10 | `0` |
 | `Q2MIN` `Q2MAX` | Q^2 sampling window [GeV^2] | `1.0` `6.0` |
 | `XBMIN` `XBMAX` | x_B sampling window | `0.08` `0.5` |
 | `TMAX`   | Flat t' upper bound [GeV^2] | `4.0` |
+| `TUNED` | `1` (or `--tuned_to_data`): use the helicity amplitudes extracted from CLAS12 data for `MESON` (see below) | `0` |
 | `AMP_FILE` | Path to a file defining `user_amplitudes(Q2, xB, t)` (legacy `(Q2, t)` still accepted), overrides the built-in set | (none) |
 | `LUND_KIN` | Append 8 kinematic columns to the Lund header (blind-safe) | `0` |
 | `LUND_TRUTH` | Also append the 16 truth amplitude columns (reveals the truth) | `1` |
 
 > The default Q^2/x_B/t windows match the extraction's trained forward model -- **keep the defaults
 > for the blind test**; change them only for other studies.
+
+## Data-tuned amplitudes (`--tuned_to_data`)
+
+`--tuned_to_data` (or `TUNED=1`) replaces the built-in amplitudes by the ones **extracted from CLAS12
+data** in the vecmeson_extraction analysis: the vector-meson helicity amplitudes T and U (Diehl
+notation, nucleon non-flip) plus the h+h- S-wave that interferes with them, fitted per
+(Q^2, x_B, |t|) bin with the 7-D acceptance. Available for `MESON=phi` and `MESON=rho0`.
+
+```bash
+python generate_events.py MESON=phi  E=10.6  N=500000 --tuned_to_data
+python generate_events.py MESON=rho0 E=6.395 N=500000 --tuned_to_data   # one beam energy per run
+python generate_events.py MESON=rho0 E=8.477 N=500000 --tuned_to_data CHUNK=10000 SEED=11
+```
+
+| | fitted range (default windows in tuned mode) | beams in the fit |
+|---|---|---|
+| phi  | Q^2 1.0-3.0, x_B 0.10-0.50, abs(t) < 1.7  | 6.535, 7.546, 10.6 GeV |
+| rho0 | Q^2 0.8-4.0, x_B 0.07-0.62, abs(t) < 2.65 | 6.395, 8.477, 10.6 GeV |
+
+- The tables live in `tuned/<MESON>/` (`amps.py` + `nodes.npz`; `nodes.csv` lists the fitted values and
+  their errors; `tuned.json` gives the source run, coverage and validation). Only NumPy is needed.
+- The Q^2/x_B/t windows default to the fitted range. You may set wider ones; the generator warns that
+  the amplitudes are extrapolated there (the size follows a smooth model, the amplitude ratios are
+  held at the outermost fitted values).
+- Beam-helicity convention: RGA (the RGK runs were flipped to RGA before the fit). `POL` is still
+  yours to set (default 1.0); the data were fitted with 0.85.
+- Every other option works as usual. Use a different `SEED` per job when splitting a large production
+  (e.g. OSG), or leave `SEED` unset for a fresh seed each run.
+- Validation: phi reproduces the acceptance-corrected data inside the CLAS12 fiducial region to 4-6% in
+  yield and its beam-spin asymmetries. For the rho0 the angular shapes are close to the data; the W/x_B
+  shapes and the absolute yield are limited by the detector model used in the fit (10-17% at
+  6.4/8.5 GeV). Treat the rho0 normalisation as approximate.
 
 ## Generator weights (two distinct knobs)
 

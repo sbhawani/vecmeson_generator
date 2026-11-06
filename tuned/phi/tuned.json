@@ -1,0 +1,10 @@
+{
+  "meson": "phi",
+  "description": "phi -> K+K- helicity amplitudes (Diehl notation, T and U, nucleon non-flip) plus the K+K- S-wave, extracted from CLAS12 RGA/RGK data (6.535, 7.546, 10.6 GeV) by the per-bin unbinned likelihood fit with the 7-D acceptance.",
+  "source_run": "vecmeson_extraction outputs/phi_gencheck_fastmc_sw_sp_fs2 (config_phi_fastmc_sw_sp_fs2.json), 2026-11-05",
+  "content": "17 (Q2, xB, |t|) nodes x 22 parameters (16 P-wave + 6 S-wave); |A|^2 = 5-term smooth model in (log Q2, log xB, |t|) times per-node rate calibration; amplitude direction interpolated linearly between nodes",
+  "helicity_convention": "RGA (RGK beam helicity flipped to RGA before the fit)",
+  "coverage": {"Q2": [1.0, 3.0], "xB": [0.10, 0.50], "abs_t": [0.0, 1.7]},
+  "defaults": {"Q2MIN": "1.0", "Q2MAX": "3.0", "XBMIN": "0.10", "XBMAX": "0.50", "TMAX": "1.7"},
+  "validation": "data/eta vs this generator inside the CLAS12 fiducial region: fiducial yield ratio 1.06/1.06/1.04 per beam; BSA in Phi chi2 4.3/6, phi_H 5.4/8 (vecmeson_extraction FINDINGS 2026-11-05)"
+}
