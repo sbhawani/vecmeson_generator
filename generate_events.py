@@ -880,6 +880,8 @@ def main():
     idir = os.path.join(_outdir, "info") if _outdir else ld
     for d in (kd, ld, idir):
         os.makedirs(d, exist_ok=True)
+    print(f"[target] MODE={MODE}" + (f"  PT={TARGET_PT:g} (Lund header field 4 = +-{TARGET_PT:g})"
+          + (f"  PHIS={PHI_S:g}" if MODE == "C" else "") if MODE != "A" else "  (unpolarized; PT ignored, field 4 = 0)"), flush=True)
     if _outdir:
         print(f"[out] Lund files -> {ld}/   columns/luminosity -> {idir}/   plots -> {kd}/", flush=True)
     if MULTI:
