@@ -19,13 +19,13 @@
     ]
   },
   "defaults": {
-    "Q2MIN": "0.8",
+    "Q2MIN": "0.7",
     "XBMIN": "0.05",
     "WMIN": "1.8",
-    "TMIN": "0.1"
+    "TMIN": "0"
   },
   "validation": "data/eta vs this generator inside the CLAS12 fiducial region: fiducial yield ratio 1.06/1.06/1.04 per beam; BSA in Phi chi2 4.3/6, phi_H 5.4/8 (vecmeson_extraction FINDINGS 2026-11-05)",
-  "defaults_note": "2026-11-06 production windows. Minima for all beams: Q2 > 0.8, xB > 0.05, W > 1.8, -t > 0.1 GeV^2 (t < 0). Upper edges per beam = the 99.9th percentile of the selected data (selection cuts only, no analysis box; phi: DISANA RGK 6.535 / 7.546 and RGA Fall 2018 + Spring 2018 outbending; rho0: Harut's RGK 6.395 / 8.477 and RGA 10.6 outbending skims with his cuts and 0.5 < m(pipi) < 0.9), rounded up. TMAX (t' bound) = ABSTMAX, as t' <= |t|. Outside 'coverage' the amplitudes are extrapolated.",
+  "defaults_note": "2026-11-06 production windows. Minima for all beams: Q2 > 0.7, xB > 0.05, W > 1.8, no |t| cut (only the kinematic t_min). These are GENERATION limits, kept looser than the analysis cuts (Q2 > 0.8, -t > 0.1 GeV^2 on reconstructed events) so that resolution migration across the analysis cuts is simulated: generating with the analysis cuts left the lowest |t| bin of the rho0 10.6 GeV data/MC at 2 and the lowest Q2 bin at 1.2 (checked 2026-11-06, 0.1 / 1.07 with the looser limits). Upper edges per beam = the 99.9th percentile of the selected data (selection cuts only, no analysis box; phi: DISANA RGK 6.535 / 7.546 and RGA Fall 2018 + Spring 2018 outbending; rho0: Harut's RGK 6.395 / 8.477 and RGA 10.6 outbending skims with his cuts and 0.5 < m(pipi) < 0.9), rounded up. TMAX (t' bound) = ABSTMAX, as t' <= |t|. Outside 'coverage' the amplitudes are extrapolated.",
   "defaults_by_beam": {
     "6.535": {
       "Q2MAX": "4.1",

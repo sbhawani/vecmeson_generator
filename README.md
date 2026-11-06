@@ -105,7 +105,10 @@ python generate_events.py MESON=rho0 E=8.477 N=500000 --tuned_to_data CHUNK=1000
 
 Default windows in tuned mode (both mesons), generated only where the data are:
 
-- minima, all beams: Q^2 > 0.8, x_B > 0.05, W > 1.8 GeV, -t > 0.1 GeV^2 (t is negative; the cut is on abs(t));
+- minima, all beams: Q^2 > 0.7, x_B > 0.05, W > 1.8 GeV, no abs(t) cut (only the kinematic t_min). These generation limits
+  are deliberately looser than the analysis cuts (e.g. Q^2 > 0.8, -t > 0.1 GeV^2 on reconstructed events), so that events
+  migrating across the analysis cuts through the detector resolution are simulated. `TMIN` (a cut on -t = abs(t); t is
+  negative) and the other minima can still be set;
 - maxima per beam (picked from `E`) = the 99.9th percentile of the selected CLAS12 data, rounded up:
 
 | | Q^2 max | x_B max | abs(t) max | W max |
