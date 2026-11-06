@@ -50,8 +50,8 @@ MESON=rho0 N=60000 python generate_events.py
 
 The count and windows take effect exactly as set: e.g. `N=300 Q2MIN=1.5 Q2MAX=3.0 XBMIN=0.12
 XBMAX=0.28` writes 300 events with `Q2` in `1.50..2.99` and `x_B` in `0.12..0.28` (verify via the
-`Q2`/`xB` columns in the Lund header when `LUND_KIN`/`LUND_TRUTH` is on). The random `SEED` is fixed
-in the source (`SEED = 1`), so runs are reproducible; edit that line for a different sample.
+`Q2`/`xB` columns in the Lund header when `LUND_KIN`/`LUND_TRUTH` is on). Without `SEED` every run draws a fresh random seed (printed in the log, so the run can be
+reproduced); `SEED=<int>` makes a run reproducible. Give batch jobs different seeds (or none).
 
 Options are environment variables:
 
@@ -73,6 +73,7 @@ Options are environment variables:
 | `TUNED` | `1` (or `--tuned_to_data`): use the helicity amplitudes extracted from CLAS12 data for `MESON` (see below) | `0` |
 | `OUTDIR` | Directory for the Lund files (created if needed); `Kin_plots/` goes inside it | `LUND_files/` next to the script |
 | `TAG` | Label in the Lund file names, `<V>_<E>gev_<TAG>_<i>.lund` (one per batch job sharing an `OUTDIR`) | (none) |
+| `SEED` | Random seed (int); unset = a fresh random seed per run, printed in the log | random |
 | `AMP_FILE` | Path to a file defining `user_amplitudes(Q2, xB, t)` (legacy `(Q2, t)` still accepted), overrides the built-in set | (none) |
 | `LUND_KIN` | Append 8 kinematic columns to the Lund header (blind-safe) | `0` |
 | `LUND_TRUTH` | Also append the 16 truth amplitude columns (reveals the truth) | `1` |
