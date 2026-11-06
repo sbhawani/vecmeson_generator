@@ -71,6 +71,7 @@ Options are environment variables:
 | `XBMIN` `XBMAX` | x_B sampling window | `0.08` `0.5` |
 | `TMAX`   | Flat t' upper bound [GeV^2] | `4.0` |
 | `WMIN`   | Minimum W [GeV], a cut on the thrown events (0 = kinematic threshold only) | `0` |
+| `TMIN`   | Minimum -t = abs(t) [GeV^2] (t is negative), a cut on the thrown events (0 = kinematic t_min only) | `0` |
 | `TUNED` | `1` (or `--tuned_to_data`): use the helicity amplitudes extracted from CLAS12 data for `MESON` (see below) | `0` |
 | `OUTDIR` | Directory for the Lund files (created if needed); `Kin_plots/` goes inside it | `LUND_files/` next to the script |
 | `TAG` | Label in the Lund file names, `<V>_<E>gev_<TAG>_<i>.lund` (one per batch job sharing an `OUTDIR`) | (none) |
@@ -95,15 +96,19 @@ python generate_events.py MESON=rho0 E=6.395 N=500000 --tuned_to_data   # one be
 python generate_events.py MESON=rho0 E=8.477 N=500000 --tuned_to_data CHUNK=10000 SEED=11
 ```
 
-| | fitted range (default windows in tuned mode) | beams in the fit |
+| | fitted range | beams in the fit |
 |---|---|---|
 | phi  | Q^2 1.0-3.0, x_B 0.10-0.50, abs(t) < 1.7  | 6.535, 7.546, 10.6 GeV |
 | rho0 | Q^2 0.8-4.0, x_B 0.07-0.62, abs(t) < 2.65 | 6.395, 8.477, 10.6 GeV |
 
+Default windows in tuned mode: **phi** Q^2 > 0.6 (to 8), W > 1.8, x_B > 0.05 (to 0.7), -t > 0.1 GeV^2, t' < 1.7
+(production settings; the part below Q^2 = 1 / x_B = 0.1 is extrapolated); **rho0** = its fitted range. Every window
+can be overridden on the command line (`Q2MIN`, `Q2MAX`, `XBMIN`, `XBMAX`, `WMIN`, `TMIN`, `TMAX`).
+
+
 - The tables live in `tuned/<MESON>/` (`amps.py` + `nodes.npz`; `nodes.csv` lists the fitted values and
   their errors; `tuned.json` gives the source run, coverage and validation). Only NumPy is needed.
-- The Q^2/x_B/t windows default to the fitted range. You may set wider ones; the generator warns that
-  the amplitudes are extrapolated there (the size follows a smooth model, the amplitude ratios are
+- Outside the fitted range the generator warns that the amplitudes are extrapolated (the size follows a smooth model, the amplitude ratios are
   held at the outermost fitted values).
 - Beam-helicity convention: RGA (the RGK runs were flipped to RGA before the fit). `POL` is still
   yours to set (default 1.0); the data were fitted with 0.85.

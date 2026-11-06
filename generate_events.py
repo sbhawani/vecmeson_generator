@@ -26,7 +26,8 @@ _OPTIONS = {  # name -> one-line help, for --help
     "MESON": "vector meson: rho0 | phi", "N": "number of events", "E": "beam energy [GeV]",
     "BEAM": "lepton beam: e | mu", "WEIGHT": "yield weight: flux | amp | vpk | hand | toy",
     "Q2MIN": "Q^2 lower [GeV^2]", "Q2MAX": "Q^2 upper [GeV^2]", "XBMIN": "x_B lower",
-    "XBMAX": "x_B upper", "TMAX": "flat t' upper bound [GeV^2]", "WMIN": "minimum W [GeV] (0 = only the kinematic threshold)", "POL": "beam helicity magnitude",
+    "XBMAX": "x_B upper", "TMAX": "flat t' upper bound [GeV^2]", "WMIN": "minimum W [GeV] (0 = only the kinematic threshold)",
+    "TMIN": "minimum -t = |t| [GeV^2] (t < 0; 0 = only the kinematic t_min)", "POL": "beam helicity magnitude",
     "MMAX": "upper edge of the BW mass window [GeV]; 0 = use NWIDTHS rule",
     "NWIDTHS": "BW mass window = M0 + NWIDTHS*Gamma (default 8; rho0 -> 1.968 GeV)",
     "BW": "sample Breit-Wigner lineshape: 1 | 0", "CHUNK": "events per Lund file",
@@ -94,7 +95,7 @@ if TUNED:
                   f"-> the amplitudes there are extrapolated", file=sys.stderr)
     print(f"[tuned] MESON={_m}: data-tuned amplitudes from {_tj['source_run']}", flush=True)
     print(f"[tuned] windows Q2 {os.environ['Q2MIN']}..{os.environ['Q2MAX']}, xB {os.environ['XBMIN']}.."
-          f"{os.environ['XBMAX']}, TMAX {os.environ['TMAX']}", flush=True)
+          f"{os.environ['XBMAX']}, W > {os.environ.get('WMIN', '0')}, -t > {os.environ.get('TMIN', '0')}, t' < {os.environ['TMAX']}", flush=True)
 
 import numpy as np
 import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
@@ -197,6 +198,9 @@ TMAX = float(os.environ.get("TMAX", "4.0"))
 # WMIN (2026-11-06): a lower W cut applied to the thrown candidates, like the y and threshold cuts. Candidates it removes
 # still count in n_thrown, so the absolute normalisation (sigma_bar_box over the Q2-xB-t' box) stays right.
 WMIN = float(os.environ.get("WMIN", "0"))
+# TMIN (2026-11-06): a lower cut on -t = |t| (t itself is negative; t = t_min - t' with t_min <= 0 the kinematic edge),
+# applied to the thrown candidates like WMIN; removed candidates count in n_thrown (normalisation unchanged).
+TMIN = float(os.environ.get("TMIN", "0"))
 # Breit-Wigner mass-window controls (2026-08-28, raised by Harut).  The upper edge of the
 # BW accept-reject window was a hard-coded M0 + 8*Gamma.  For the rho0 that is
 # 0.77526 + 8*0.14910 = 1.968 GeV -- an invisible ~2 GeV ceiling on M(pipi): masses above it
@@ -444,7 +448,7 @@ def throw(E, n_pool, rng, MV, GV, MH):
     pg = np.linalg.norm(qcm[:, 1:], axis=1); Eg = qcm[:, 0]
     Ephi = (W2 + mv**2 - M**2)/(2*Wm); pphi = np.sqrt(np.clip(Ephi**2 - mv**2, 0, None))
     tmin = -Q2 + mv**2 - 2*(Eg*Ephi - pg*pphi); t = tmin - tprime
-    cosst = (t + Q2 - mv**2 + 2*Eg*Ephi)/(2*pg*pphi); good = np.abs(cosst) <= 1
+    cosst = (t + Q2 - mv**2 + 2*Eg*Ephi)/(2*pg*pphi); good = (np.abs(cosst) <= 1) & (-t > TMIN)
     (Q2, xB, nu, y, Wm, eps, kp, q, Wsys, beta, qcm, pg, Eg, Ephi, pphi, tprime, t, tmin, cosst, mv) = (
         v[good] for v in (Q2, xB, nu, y, Wm, eps, kp, q, Wsys, beta, qcm, pg, Eg, Ephi, pphi,
                           tprime, t, tmin, cosst, mv))
@@ -676,6 +680,7 @@ def write_lund(ev, meta, outdir, base):
             fc.write(f"# box_xB = {XBMIN:.6g} {XBMAX:.6g}\n")
             fc.write(f"# box_tprime_max = {TMAX:.6g}\n")
             fc.write(f"# W_min = {WMIN:.6g}  (cut on the thrown candidates; 0 = none)\n")
+            fc.write(f"# abs_t_min = {TMIN:.6g}  (cut -t > abs_t_min on the thrown candidates; 0 = none)\n")
             # USE THIS ONE. n_kept is truncated to the requested N, so the thrown count that
             # actually corresponds to the WRITTEN sample is n_kept/accept_probability, and
             #     L = n_kept / (sigma_bar * V_box)
